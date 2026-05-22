@@ -1,0 +1,11 @@
+*.o
+src/*.o
+tests/*.o
+build/
+simulator
+test_grid_vs_bruteforce
+test_physics
+.DS_Store
+*.log
+*.csv
+.claude/

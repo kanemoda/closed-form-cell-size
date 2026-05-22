@@ -1,0 +1,12 @@
+{
+    "N":           1000,
+    "domain_w":    200,
+    "domain_h":    200,
+    "radius":      0.5,
+    "restitution": 0.95,
+    "dt":          0.01,
+    "cell_size":   2.0,
+    "num_frames":  200,
+    "seed":        12345,
+    "init_speed":  5.0
+}
