@@ -1,0 +1,16 @@
+{
+    "N":                 400,
+    "domain_w":          80,
+    "domain_h":          80,
+    "radius":            0.5,
+    "restitution":       0.99,
+    "dt":                0.01666666666666,
+    "cell_size":         2.0,
+    "num_frames":        200,
+    "seed":              7,
+    "init_speed":        10.0,
+    "log_enabled":       true,
+    "log_csv_path":      "out/pulse.csv",
+    "scenario":          "pulse",
+    "snapshot_csv_path": "out/pulse_snapshots.csv"
+}

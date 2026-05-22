@@ -1,5 +1,6 @@
 #define _POSIX_C_SOURCE 199309L
 #include "sim.h"
+#include "scenarios.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
@@ -36,6 +37,11 @@ void sim_init(sim_t *s, const config_t *cfg) {
     s->pairs            = (pair_t *)malloc(sizeof(pair_t) * (size_t)s->pairs_cap);
     s->last_cand_count  = 0;
     s->last_pair_count  = 0;
+
+    /* Default to the force-free 'stable' scenario; scenario_init() may
+     * override before the first sim_step(). */
+    s->scenario_id      = SCEN_STABLE;
+    s->frame_index      = 0;
 }
 
 void sim_free(sim_t *s) {
@@ -49,40 +55,10 @@ void sim_free(sim_t *s) {
     s->pairs = NULL;
 }
 
+/* Legacy entry point used by Phase 1/2 tests: identical to the 'stable'
+ * scenario (uniform random placement, random velocity directions). */
 void sim_init_random(sim_t *s) {
-    const double r = s->cfg.radius;
-    const double W = s->cfg.domain_w;
-    const double H = s->cfg.domain_h;
-    const double rr_min = (2.0 * r) * (2.0 * r);
-    const int n = s->n;
-    const int max_retries = 50000;
-
-    for (int i = 0; i < n; i++) {
-        int placed = 0;
-        for (int t = 0; t < max_retries; t++) {
-            double x = rng_uniform(&s->rng, r, W - r);
-            double y = rng_uniform(&s->rng, r, H - r);
-            int ok = 1;
-            for (int j = 0; j < i; j++) {
-                double dx = x - s->px[j];
-                double dy = y - s->py[j];
-                if (dx * dx + dy * dy < rr_min) { ok = 0; break; }
-            }
-            if (ok) {
-                s->px[i] = x;
-                s->py[i] = y;
-                placed   = 1;
-                break;
-            }
-        }
-        if (!placed) {
-            fprintf(stderr, "sim_init_random: failed to place particle %d (density too high?)\n", i);
-            exit(1);
-        }
-        double theta = rng_uniform(&s->rng, 0.0, 2.0 * M_PI);
-        s->vx[i] = s->cfg.init_speed * cos(theta);
-        s->vy[i] = s->cfg.init_speed * sin(theta);
-    }
+    scenario_init(s, SCEN_STABLE);
 }
 
 static void wall_reflect(sim_t *s) {
@@ -141,9 +117,9 @@ void sim_step(sim_t *s, sim_metrics_t *out) {
     clock_gettime(CLOCK_MONOTONIC, &t0);
 
     /* 1a. force pass (semi-implicit Euler).
-     *     Phase 1 has no external forces -- v unchanged here.
-     *     Phase 3 will add: vx[i] += Fx*dt/m; vy[i] += Fy*dt/m;       */
-    /* 1b. position integration with (possibly updated) velocity      */
+     *     Dispatches on s->scenario_id; no-op for force-free scenarios. */
+    scenario_apply_forces(s);
+    /* 1b. position integration with the post-force velocity. */
     for (int i = 0; i < n; i++) {
         s->px[i] += s->vx[i] * dt;
         s->py[i] += s->vy[i] * dt;
@@ -178,6 +154,7 @@ void sim_step(sim_t *s, sim_metrics_t *out) {
 
     s->last_cand_count = n_cand;
     s->last_pair_count = n_overlap;
+    s->frame_index++;
 
     if (out) {
         out->cell_size        = s->cfg.cell_size;

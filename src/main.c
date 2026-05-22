@@ -4,12 +4,21 @@
 #include <time.h>
 #include "config.h"
 #include "sim.h"
+#include "scenarios.h"
 #include "log.h"
 
 static double now_seconds(void) {
     struct timespec ts;
     clock_gettime(CLOCK_MONOTONIC, &ts);
     return (double)ts.tv_sec + (double)ts.tv_nsec * 1e-9;
+}
+
+static void dump_snapshot(FILE *snap, int frame, const sim_t *s) {
+    if (!snap) return;
+    for (int i = 0; i < s->n; i++) {
+        fprintf(snap, "%d,%d,%.17g,%.17g,%.17g,%.17g\n",
+                frame, i, s->px[i], s->py[i], s->vx[i], s->vy[i]);
+    }
 }
 
 int main(int argc, char **argv) {
@@ -23,12 +32,33 @@ int main(int argc, char **argv) {
 
     sim_t s;
     sim_init(&s, &cfg);
-    sim_init_random(&s);
+    scenario_id_t scen = scenario_from_name(cfg.scenario);
+    scenario_init(&s, scen);
+    fprintf(stderr,
+        "scenario: %s (forces=%s)\n",
+        scenario_name(scen), scenario_has_forces(scen) ? "yes" : "no");
 
     FILE *csv = NULL;
     if (cfg.log_enabled && cfg.log_csv_path[0] != '\0') {
         csv = log_open(cfg.log_csv_path);
         if (csv) log_write_header(csv);
+    }
+
+    /* Optional position snapshots: 5 frames evenly spaced. */
+    FILE *snap = NULL;
+    int snap_frames[5] = {-1, -1, -1, -1, -1};
+    if (cfg.snapshot_csv_path[0] != '\0') {
+        snap = fopen(cfg.snapshot_csv_path, "w");
+        if (snap) {
+            fputs("frame,id,x,y,vx,vy\n", snap);
+            for (int k = 0; k < 5; k++) {
+                int f = (cfg.num_frames * k) / 5;
+                if (f >= cfg.num_frames) f = cfg.num_frames - 1;
+                snap_frames[k] = f;
+            }
+        } else {
+            fprintf(stderr, "main: failed to open snapshot '%s'\n", cfg.snapshot_csv_path);
+        }
     }
 
     double ke0 = sim_total_kinetic_energy(&s);
@@ -41,12 +71,16 @@ int main(int argc, char **argv) {
         sim_metrics_t m = { .frame = t };
         sim_step(&s, csv ? &m : NULL);
         if (csv) log_write_row(csv, &m);
+        for (int k = 0; k < 5; k++) {
+            if (t == snap_frames[k]) { dump_snapshot(snap, t, &s); break; }
+        }
         total_pairs += s.last_pair_count;
         total_cands += s.last_cand_count;
     }
     double t1 = now_seconds();
 
     log_close(csv);
+    if (snap) fclose(snap);
 
     double ke1 = sim_total_kinetic_energy(&s);
     double pxt1, pyt1;
@@ -60,11 +94,12 @@ int main(int argc, char **argv) {
         "KE: initial=%.6g final=%.6g  ratio=%.9f\n", ke0, ke1, ke1 / ke0);
     fprintf(stderr,
         "P : initial=(%.6g, %.6g)  final=(%.6g, %.6g)\n", pxt0, pyt0, pxt1, pyt1);
-    if (csv == NULL && cfg.log_enabled) {
-        fprintf(stderr, "(log_enabled set but log_csv_path empty or open failed -- no CSV written)\n");
-    } else if (csv != NULL) {
-        fprintf(stderr, "CSV log: %s\n", cfg.log_csv_path);
-    }
+    if (csv != NULL) fprintf(stderr, "CSV log:        %s\n", cfg.log_csv_path);
+    if (snap_frames[0] >= 0 && cfg.snapshot_csv_path[0])
+        fprintf(stderr, "snapshot CSV:   %s (frames %d,%d,%d,%d,%d)\n",
+                cfg.snapshot_csv_path,
+                snap_frames[0], snap_frames[1], snap_frames[2],
+                snap_frames[3], snap_frames[4]);
 
     sim_free(&s);
     return 0;

@@ -17,6 +17,11 @@ void config_default(config_t *cfg) {
 
     cfg->log_enabled = 0;
     cfg->log_csv_path[0] = '\0';
+
+    /* Phase 3 */
+    strncpy(cfg->scenario, "stable", sizeof(cfg->scenario) - 1);
+    cfg->scenario[sizeof(cfg->scenario) - 1] = '\0';
+    cfg->snapshot_csv_path[0] = '\0';
 }
 
 int config_load(const char *path, config_t *cfg) {
@@ -40,6 +45,11 @@ int config_load(const char *path, config_t *cfg) {
     json_get_bool  (&obj, "log_enabled", &cfg->log_enabled);
     json_get_string(&obj, "log_csv_path", cfg->log_csv_path,
                     (int)sizeof(cfg->log_csv_path));
+
+    json_get_string(&obj, "scenario",          cfg->scenario,
+                    (int)sizeof(cfg->scenario));
+    json_get_string(&obj, "snapshot_csv_path", cfg->snapshot_csv_path,
+                    (int)sizeof(cfg->snapshot_csv_path));
     return 0;
 }
 
@@ -52,4 +62,7 @@ void config_print(const config_t *cfg) {
     fprintf(stderr,
             "        log_enabled=%d log_csv_path='%s'\n",
             cfg->log_enabled, cfg->log_csv_path);
+    fprintf(stderr,
+            "        scenario='%s' snapshot_csv_path='%s'\n",
+            cfg->scenario, cfg->snapshot_csv_path);
 }

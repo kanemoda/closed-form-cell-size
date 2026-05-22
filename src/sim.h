@@ -54,6 +54,13 @@ typedef struct {
     int          pairs_cap;
     int          last_cand_count;
     int          last_pair_count;
+
+    /* Phase 3: scenario state. Set by scenario_init(). The force-field
+     * dispatcher (scenario_apply_forces) reads scenario_id; sim_step()
+     * increments frame_index at the end of each step so time-dependent
+     * forces can use t = frame_index * dt. */
+    int          scenario_id;      /* index into the scenario vtable; default 0 */
+    int          frame_index;      /* steps elapsed since scenario_init        */
 } sim_t;
 
 void sim_init       (sim_t *s, const config_t *cfg);

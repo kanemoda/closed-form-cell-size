@@ -18,6 +18,14 @@ typedef struct {
     /* Phase 2: per-frame CSV logging */
     int      log_enabled;            /* 0 = disabled, 1 = enabled    */
     char     log_csv_path[256];      /* output CSV path; "" disables */
+
+    /* Phase 3: scenario selection + optional snapshot dump.
+     * scenario: one of "stable", "collapse", "explosion", "vortex",
+     *           "funnel", "pulse", "multicluster", "stream".
+     * snapshot_csv_path: if non-empty, main.c dumps particle positions
+     *           at 5 evenly spaced frames to this CSV (frame,id,x,y,vx,vy). */
+    char     scenario[32];
+    char     snapshot_csv_path[256];
 } config_t;
 
 void config_default(config_t *cfg);

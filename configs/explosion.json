@@ -1,0 +1,16 @@
+{
+    "N":                 400,
+    "domain_w":          100,
+    "domain_h":          100,
+    "radius":            0.5,
+    "restitution":       0.95,
+    "dt":                0.01666666666666,
+    "cell_size":         2.0,
+    "num_frames":        120,
+    "seed":              42,
+    "init_speed":        10.0,
+    "log_enabled":       true,
+    "log_csv_path":      "out/explosion.csv",
+    "scenario":          "explosion",
+    "snapshot_csv_path": "out/explosion_snapshots.csv"
+}
