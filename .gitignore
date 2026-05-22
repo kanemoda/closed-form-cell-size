@@ -6,6 +6,8 @@ simulator
 test_grid_vs_bruteforce
 test_physics
 test_phase2
+test_phase4
+checkpoint
 out/
 .DS_Store
 *.log
