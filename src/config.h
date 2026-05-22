@@ -14,6 +14,10 @@ typedef struct {
     int      num_frames;    /* total frames to simulate             */
     uint64_t seed;          /* RNG seed                             */
     double   init_speed;    /* initial velocity magnitude           */
+
+    /* Phase 2: per-frame CSV logging */
+    int      log_enabled;            /* 0 = disabled, 1 = enabled    */
+    char     log_csv_path[256];      /* output CSV path; "" disables */
 } config_t;
 
 void config_default(config_t *cfg);

@@ -1,12 +1,18 @@
+#define _POSIX_C_SOURCE 199309L
 #include "sim.h"
 #include <stdlib.h>
 #include <string.h>
 #include <stdio.h>
 #include <math.h>
+#include <time.h>
 
 #ifndef M_PI
 #define M_PI 3.14159265358979323846
 #endif
+
+static inline double ts_diff_s(const struct timespec *a, const struct timespec *b) {
+    return (double)(b->tv_sec - a->tv_sec) + (double)(b->tv_nsec - a->tv_nsec) * 1e-9;
+}
 
 void sim_init(sim_t *s, const config_t *cfg) {
     s->cfg = *cfg;
@@ -25,10 +31,11 @@ void sim_init(sim_t *s, const config_t *cfg) {
     rng_seed(&s->rng, cfg->seed);
     grid_init(&s->grid, s->n, cfg->domain_w, cfg->domain_h, cfg->cell_size);
 
-    s->pairs_cap       = 16 * s->n;
+    s->pairs_cap        = 16 * s->n;
     if (s->pairs_cap < 1024) s->pairs_cap = 1024;
-    s->pairs           = (pair_t *)malloc(sizeof(pair_t) * (size_t)s->pairs_cap);
-    s->last_pair_count = 0;
+    s->pairs            = (pair_t *)malloc(sizeof(pair_t) * (size_t)s->pairs_cap);
+    s->last_cand_count  = 0;
+    s->last_pair_count  = 0;
 }
 
 void sim_free(sim_t *s) {
@@ -117,32 +124,77 @@ void resolve_pair_collisions(double *vx, double *vy,
     }
 }
 
-void sim_step(sim_t *s) {
+/* Grow s->pairs buffer (used for both candidates and overlapping output) to
+ * at least 'needed' entries. Doubles aggressively. */
+static void ensure_pair_capacity(sim_t *s, int needed) {
+    if (s->pairs_cap >= needed) return;
+    while (s->pairs_cap < needed) s->pairs_cap *= 2;
+    s->pairs = (pair_t *)realloc(s->pairs, sizeof(pair_t) * (size_t)s->pairs_cap);
+    if (!s->pairs) { fprintf(stderr, "sim_step: pair-buffer realloc failed\n"); exit(1); }
+}
+
+void sim_step(sim_t *s, sim_metrics_t *out) {
     const double dt = s->cfg.dt;
     const int    n  = s->n;
 
-    /* 1. integrate */
+    struct timespec t0, tg0, tg1, tb1, tn1, t1;
+    clock_gettime(CLOCK_MONOTONIC, &t0);
+
+    /* 1a. force pass (semi-implicit Euler).
+     *     Phase 1 has no external forces -- v unchanged here.
+     *     Phase 3 will add: vx[i] += Fx*dt/m; vy[i] += Fy*dt/m;       */
+    /* 1b. position integration with (possibly updated) velocity      */
     for (int i = 0; i < n; i++) {
         s->px[i] += s->vx[i] * dt;
         s->py[i] += s->vy[i] * dt;
     }
-    /* 2. walls */
+
+    /* 2. wall reflection (perfectly elastic) */
     wall_reflect(s);
-    /* 3. grid */
+
+    /* 3. grid build (timed) */
+    clock_gettime(CLOCK_MONOTONIC, &tg0);
     grid_build(&s->grid, s->px, s->py);
-    /* 4. pair finding -- grow buffer on overflow and retry */
-    int count;
-    while (1) {
-        int rc = grid_find_overlapping_pairs(&s->grid, s->px, s->py, s->cfg.radius,
-                                              s->pairs, s->pairs_cap, &count);
-        if (rc == 0) break;
-        s->pairs_cap *= 2;
-        s->pairs = (pair_t *)realloc(s->pairs, sizeof(pair_t) * (size_t)s->pairs_cap);
-        if (!s->pairs) { fprintf(stderr, "sim_step: pair-buffer realloc failed\n"); exit(1); }
+    clock_gettime(CLOCK_MONOTONIC, &tg1);
+
+    /* 4. broad phase: emit candidate pairs (timed) */
+    int n_cand;
+    while (grid_broad_phase(&s->grid, s->pairs, s->pairs_cap, &n_cand) != 0) {
+        ensure_pair_capacity(s, s->pairs_cap * 2);
     }
-    /* 5. resolve */
-    resolve_pair_collisions(s->vx, s->vy, s->px, s->py, s->pairs, count, s->cfg.restitution);
-    s->last_pair_count = count;
+    clock_gettime(CLOCK_MONOTONIC, &tb1);
+
+    /* 5. narrow phase: circle-circle filter (in place; timed) */
+    int n_overlap;
+    narrow_phase(s->pairs, n_cand, s->px, s->py, s->cfg.radius,
+                 s->pairs, &n_overlap);
+    clock_gettime(CLOCK_MONOTONIC, &tn1);
+
+    /* 6. resolve overlapping-pair collisions */
+    resolve_pair_collisions(s->vx, s->vy, s->px, s->py,
+                            s->pairs, n_overlap, s->cfg.restitution);
+
+    clock_gettime(CLOCK_MONOTONIC, &t1);
+
+    s->last_cand_count = n_cand;
+    s->last_pair_count = n_overlap;
+
+    if (out) {
+        out->cell_size        = s->cfg.cell_size;
+        out->N                = n;
+        out->num_cells        = s->grid.n_cells;
+        out->S                = grid_S(&s->grid);
+        out->candidate_pairs  = n_cand;
+        out->collisions       = n_overlap;
+        out->t_grid           = ts_diff_s(&tg0, &tg1);
+        out->t_broad          = ts_diff_s(&tg1, &tb1);
+        out->t_narrow         = ts_diff_s(&tb1, &tn1);
+        out->t_total          = ts_diff_s(&t0,  &t1);
+        out->kinetic_energy   = sim_total_kinetic_energy(s);
+        double mpx, mpy;
+        sim_total_momentum(s, &mpx, &mpy);
+        out->momentum_magnitude = sqrt(mpx * mpx + mpy * mpy);
+    }
 }
 
 double sim_total_kinetic_energy(const sim_t *s) {

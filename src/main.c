@@ -4,6 +4,7 @@
 #include <time.h>
 #include "config.h"
 #include "sim.h"
+#include "log.h"
 
 static double now_seconds(void) {
     struct timespec ts;
@@ -24,30 +25,46 @@ int main(int argc, char **argv) {
     sim_init(&s, &cfg);
     sim_init_random(&s);
 
+    FILE *csv = NULL;
+    if (cfg.log_enabled && cfg.log_csv_path[0] != '\0') {
+        csv = log_open(cfg.log_csv_path);
+        if (csv) log_write_header(csv);
+    }
+
     double ke0 = sim_total_kinetic_energy(&s);
     double pxt0, pyt0;
     sim_total_momentum(&s, &pxt0, &pyt0);
 
     double t0 = now_seconds();
-    long total_pairs = 0;
+    long total_pairs = 0, total_cands = 0;
     for (int t = 0; t < cfg.num_frames; t++) {
-        sim_step(&s);
+        sim_metrics_t m = { .frame = t };
+        sim_step(&s, csv ? &m : NULL);
+        if (csv) log_write_row(csv, &m);
         total_pairs += s.last_pair_count;
+        total_cands += s.last_cand_count;
     }
     double t1 = now_seconds();
+
+    log_close(csv);
 
     double ke1 = sim_total_kinetic_energy(&s);
     double pxt1, pyt1;
     sim_total_momentum(&s, &pxt1, &pyt1);
 
     fprintf(stderr,
-        "frames=%d  wall=%.3fs  ms/frame=%.4f  total_pairs=%ld  M=%d  S=%ld\n",
+        "frames=%d  wall=%.3fs  ms/frame=%.4f  candidates=%ld  collisions=%ld  M=%d  S=%ld\n",
         cfg.num_frames, t1 - t0, (t1 - t0) * 1000.0 / cfg.num_frames,
-        total_pairs, grid_M(&s.grid), grid_S(&s.grid));
+        total_cands, total_pairs, grid_M(&s.grid), grid_S(&s.grid));
     fprintf(stderr,
         "KE: initial=%.6g final=%.6g  ratio=%.9f\n", ke0, ke1, ke1 / ke0);
     fprintf(stderr,
         "P : initial=(%.6g, %.6g)  final=(%.6g, %.6g)\n", pxt0, pyt0, pxt1, pyt1);
+    if (csv == NULL && cfg.log_enabled) {
+        fprintf(stderr, "(log_enabled set but log_csv_path empty or open failed -- no CSV written)\n");
+    } else if (csv != NULL) {
+        fprintf(stderr, "CSV log: %s\n", cfg.log_csv_path);
+    }
 
     sim_free(&s);
     return 0;

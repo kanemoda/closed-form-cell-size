@@ -5,6 +5,8 @@ build/
 simulator
 test_grid_vs_bruteforce
 test_physics
+test_phase2
+out/
 .DS_Store
 *.log
 *.csv

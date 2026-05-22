@@ -158,7 +158,7 @@ static int t5_isolated_via_simstep(void) {
 
     int collided = 0;
     for (int t = 0; t < cfg.num_frames; t++) {
-        sim_step(&s);
+        sim_step(&s, NULL);
         if (s.last_pair_count > 0) collided = 1;
     }
 
@@ -232,7 +232,7 @@ static int t6_global_no_walls_e1(void) {
 
     long total_pairs = 0;
     for (int t = 0; t < cfg.num_frames; t++) {
-        sim_step(&s);
+        sim_step(&s, NULL);
         total_pairs += s.last_pair_count;
     }
 
@@ -290,7 +290,7 @@ static int t7_global_ke_nonincreasing(void) {
     double worst_up  = 0.0;
     long   total_pairs = 0;
     for (int t = 0; t < cfg.num_frames; t++) {
-        sim_step(&s);
+        sim_step(&s, NULL);
         total_pairs += s.last_pair_count;
         double ke   = sim_total_kinetic_energy(&s);
         double diff = ke - ke_prev;

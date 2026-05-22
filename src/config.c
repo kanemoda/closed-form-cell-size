@@ -1,6 +1,7 @@
 #include "config.h"
 #include "json.h"
 #include <stdio.h>
+#include <string.h>
 
 void config_default(config_t *cfg) {
     cfg->N           = 1000;
@@ -13,6 +14,9 @@ void config_default(config_t *cfg) {
     cfg->num_frames  = 100;
     cfg->seed        = 1;
     cfg->init_speed  = 50.0;
+
+    cfg->log_enabled = 0;
+    cfg->log_csv_path[0] = '\0';
 }
 
 int config_load(const char *path, config_t *cfg) {
@@ -32,6 +36,10 @@ int config_load(const char *path, config_t *cfg) {
     json_get_int   (&obj, "num_frames",  &cfg->num_frames);
     json_get_u64   (&obj, "seed",        &cfg->seed);
     json_get_double(&obj, "init_speed",  &cfg->init_speed);
+
+    json_get_bool  (&obj, "log_enabled", &cfg->log_enabled);
+    json_get_string(&obj, "log_csv_path", cfg->log_csv_path,
+                    (int)sizeof(cfg->log_csv_path));
     return 0;
 }
 
@@ -41,4 +49,7 @@ void config_print(const config_t *cfg) {
             cfg->N, cfg->domain_w, cfg->domain_h, cfg->radius, cfg->restitution,
             cfg->dt, cfg->cell_size, cfg->num_frames,
             (unsigned long long)cfg->seed, cfg->init_speed);
+    fprintf(stderr,
+            "        log_enabled=%d log_csv_path='%s'\n",
+            cfg->log_enabled, cfg->log_csv_path);
 }

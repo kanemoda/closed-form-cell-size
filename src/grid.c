@@ -77,30 +77,22 @@ long grid_S(const grid_t *g) {
     return s;
 }
 
-/* test pair (ia, ib): if overlapping, add to out in normalised (i<j) order. */
-static inline int try_add_pair(const double *px, const double *py, double rr,
-                                int ia, int ib,
-                                pair_t *out, int max_pairs, int *count) {
-    double dx = px[ia] - px[ib];
-    double dy = py[ia] - py[ib];
-    if (dx * dx + dy * dy < rr) {
-        if (*count >= max_pairs) return -1;
-        int i = ia < ib ? ia : ib;
-        int j = ia < ib ? ib : ia;
-        out[*count].i = i;
-        out[*count].j = j;
-        (*count)++;
-    }
+/* emit one candidate pair (ia, ib) in normalised order (i<j). */
+static inline int emit_pair(int ia, int ib,
+                             pair_t *out, int max_pairs, int *count) {
+    if (*count >= max_pairs) return -1;
+    int i = ia < ib ? ia : ib;
+    int j = ia < ib ? ib : ia;
+    out[*count].i = i;
+    out[*count].j = j;
+    (*count)++;
     return 0;
 }
 
-int grid_find_overlapping_pairs(const grid_t *g,
-                                 const double *px, const double *py,
-                                 double r,
-                                 pair_t *pairs_out, int max_pairs, int *count_out) {
+int grid_broad_phase(const grid_t *g,
+                      pair_t *pairs_out, int max_pairs, int *count_out) {
     *count_out = 0;
-    const double rr = (2.0 * r) * (2.0 * r);
-    const int    gw = g->gw, gh = g->gh;
+    const int gw = g->gw, gh = g->gh;
 
     /* Half-stencil: (+1,0), (-1,+1), (0,+1), (+1,+1).
      * Each unordered pair of adjacent cells is visited from exactly one side. */
@@ -113,12 +105,12 @@ int grid_find_overlapping_pairs(const grid_t *g,
             int a0 = g->cell_start[c];
             int a1 = g->cell_start[c + 1];
 
-            /* intra-cell */
+            /* intra-cell pairs */
             for (int a = a0; a < a1; a++) {
                 int ia = g->sorted_idx[a];
                 for (int b = a + 1; b < a1; b++) {
                     int ib = g->sorted_idx[b];
-                    if (try_add_pair(px, py, rr, ia, ib, pairs_out, max_pairs, count_out) != 0)
+                    if (emit_pair(ia, ib, pairs_out, max_pairs, count_out) != 0)
                         return -1;
                 }
             }
@@ -135,13 +127,40 @@ int grid_find_overlapping_pairs(const grid_t *g,
                     int ia = g->sorted_idx[a];
                     for (int b = b0; b < b1; b++) {
                         int ib = g->sorted_idx[b];
-                        if (try_add_pair(px, py, rr, ia, ib, pairs_out, max_pairs, count_out) != 0)
+                        if (emit_pair(ia, ib, pairs_out, max_pairs, count_out) != 0)
                             return -1;
                     }
                 }
             }
         }
     }
+    return 0;
+}
+
+void narrow_phase(const pair_t *cands, int n_cands,
+                   const double *px, const double *py, double r,
+                   pair_t *out, int *n_overlap) {
+    const double rr = (2.0 * r) * (2.0 * r);
+    int w = 0;
+    /* Safe with out == cands: writes always trail reads (w <= k). */
+    for (int k = 0; k < n_cands; k++) {
+        int i = cands[k].i, j = cands[k].j;
+        double dx = px[j] - px[i];
+        double dy = py[j] - py[i];
+        if (dx * dx + dy * dy < rr) {
+            out[w++] = cands[k];
+        }
+    }
+    *n_overlap = w;
+}
+
+int grid_find_overlapping_pairs(const grid_t *g,
+                                 const double *px, const double *py,
+                                 double r,
+                                 pair_t *pairs_out, int max_pairs, int *count_out) {
+    int rc = grid_broad_phase(g, pairs_out, max_pairs, count_out);
+    if (rc != 0) return rc;
+    narrow_phase(pairs_out, *count_out, px, py, r, pairs_out, count_out);
     return 0;
 }
 
