@@ -22,6 +22,13 @@ void config_default(config_t *cfg) {
     strncpy(cfg->scenario, "stable", sizeof(cfg->scenario) - 1);
     cfg->scenario[sizeof(cfg->scenario) - 1] = '\0';
     cfg->snapshot_csv_path[0] = '\0';
+
+    /* Phase 4 */
+    cfg->oracle_csv_path[0] = '\0';
+    cfg->oracle_ell_min     = 0.0;
+    cfg->oracle_ell_max     = 0.0;
+    cfg->oracle_gamma       = 0.0;
+    cfg->oracle_K           = 0;
 }
 
 int config_load(const char *path, config_t *cfg) {
@@ -50,6 +57,13 @@ int config_load(const char *path, config_t *cfg) {
                     (int)sizeof(cfg->scenario));
     json_get_string(&obj, "snapshot_csv_path", cfg->snapshot_csv_path,
                     (int)sizeof(cfg->snapshot_csv_path));
+
+    json_get_string(&obj, "oracle_csv_path",   cfg->oracle_csv_path,
+                    (int)sizeof(cfg->oracle_csv_path));
+    json_get_double(&obj, "oracle_ell_min",   &cfg->oracle_ell_min);
+    json_get_double(&obj, "oracle_ell_max",   &cfg->oracle_ell_max);
+    json_get_double(&obj, "oracle_gamma",     &cfg->oracle_gamma);
+    json_get_int   (&obj, "oracle_K",         &cfg->oracle_K);
     return 0;
 }
 

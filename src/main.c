@@ -1,11 +1,15 @@
 #define _POSIX_C_SOURCE 199309L
 #include <stdio.h>
 #include <stdlib.h>
+#include <math.h>
 #include <time.h>
 #include "config.h"
 #include "sim.h"
 #include "scenarios.h"
 #include "log.h"
+#include "oracle.h"
+
+#define ORACLE_MAX_PTS 64
 
 static double now_seconds(void) {
     struct timespec ts;
@@ -44,6 +48,32 @@ int main(int argc, char **argv) {
         if (csv) log_write_header(csv);
     }
 
+    /* Optional per-frame oracle (Phase 4): non-perturbing sweep over a
+     * geometric ladder of candidate cell sizes, evaluated on the frozen
+     * post-step snapshot. Writes one row per (frame, ell) pair. */
+    FILE  *oracle_csv = NULL;
+    double oracle_ells[ORACLE_MAX_PTS];
+    int    n_oracle_ells = 0;
+    int    oracle_K_use  = 5;
+    if (cfg.oracle_csv_path[0] != '\0') {
+        double ell_min = cfg.oracle_ell_min > 0.0 ? cfg.oracle_ell_min : 2.0 * cfg.radius;
+        double ell_max = cfg.oracle_ell_max > 0.0 ? cfg.oracle_ell_max
+                                                 : 0.5 * fmin(cfg.domain_w, cfg.domain_h);
+        double gamma   = cfg.oracle_gamma   > 1.0 ? cfg.oracle_gamma   : 1.25;
+        if (cfg.oracle_K > 0) oracle_K_use = cfg.oracle_K;
+        n_oracle_ells = oracle_make_geo_sweep(ell_min, ell_max, gamma,
+                                              oracle_ells, ORACLE_MAX_PTS);
+        oracle_csv = fopen(cfg.oracle_csv_path, "w");
+        if (oracle_csv) {
+            fputs("frame,ell,num_cells,S,candidate_pairs,"
+                  "t_grid,t_broad,t_narrow,t_detect\n", oracle_csv);
+            fprintf(stderr,
+                "oracle: %d candidate ells in [%.3f, %.3f], gamma=%.3f, K=%d -> %s\n",
+                n_oracle_ells, ell_min, ell_max, gamma, oracle_K_use,
+                cfg.oracle_csv_path);
+        }
+    }
+
     /* Optional position snapshots: 5 frames evenly spaced. */
     FILE *snap = NULL;
     int snap_frames[5] = {-1, -1, -1, -1, -1};
@@ -67,12 +97,30 @@ int main(int argc, char **argv) {
 
     double t0 = now_seconds();
     long total_pairs = 0, total_cands = 0;
+    oracle_point_t oracle_pts[ORACLE_MAX_PTS];
     for (int t = 0; t < cfg.num_frames; t++) {
         sim_metrics_t m = { .frame = t };
         sim_step(&s, csv ? &m : NULL);
         if (csv) log_write_row(csv, &m);
         for (int k = 0; k < 5; k++) {
             if (t == snap_frames[k]) { dump_snapshot(snap, t, &s); break; }
+        }
+        /* Per-frame oracle, on the frozen post-step snapshot.
+         * MUST be after sim_step (so positions reflect frame t) and MUST
+         * not mutate s -- oracle_eval allocates its own grid/pair buffers. */
+        if (oracle_csv && n_oracle_ells > 0) {
+            oracle_eval_sweep(s.n, s.px, s.py, cfg.radius,
+                              cfg.domain_w, cfg.domain_h,
+                              oracle_ells, n_oracle_ells, oracle_K_use,
+                              oracle_pts);
+            for (int i = 0; i < n_oracle_ells; i++) {
+                fprintf(oracle_csv,
+                        "%d,%.17g,%d,%ld,%d,%.9g,%.9g,%.9g,%.9g\n",
+                        t, oracle_pts[i].ell, oracle_pts[i].num_cells,
+                        oracle_pts[i].S, oracle_pts[i].candidate_pairs,
+                        oracle_pts[i].t_grid, oracle_pts[i].t_broad,
+                        oracle_pts[i].t_narrow, oracle_pts[i].t_detect);
+            }
         }
         total_pairs += s.last_pair_count;
         total_cands += s.last_cand_count;
@@ -81,6 +129,7 @@ int main(int argc, char **argv) {
 
     log_close(csv);
     if (snap) fclose(snap);
+    if (oracle_csv) fclose(oracle_csv);
 
     double ke1 = sim_total_kinetic_energy(&s);
     double pxt1, pyt1;

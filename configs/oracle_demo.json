@@ -1,0 +1,21 @@
+{
+    "N":                400,
+    "domain_w":         80,
+    "domain_h":         80,
+    "radius":           0.5,
+    "restitution":      0.95,
+    "dt":               0.01666666666666,
+    "cell_size":        2.0,
+    "num_frames":       60,
+    "seed":             123,
+    "init_speed":       10.0,
+    "log_enabled":      true,
+    "log_csv_path":     "out/oracle_demo_metrics.csv",
+    "scenario":         "stable",
+
+    "oracle_csv_path":  "out/oracle_demo_sweep.csv",
+    "oracle_ell_min":   1.0,
+    "oracle_ell_max":   40.0,
+    "oracle_gamma":     1.25,
+    "oracle_K":         5
+}
