@@ -42,10 +42,11 @@ typedef enum {
 typedef struct {
     /* configuration */
     adapter_mode_t mode;
-    int      d;                 /* spatial dimension (2 here)           */
+    int      d;                 /* spatial dimension (2 or 3)           */
     double   V;                 /* domain volume / area                 */
     double   domain_w;
     double   domain_h;
+    double   domain_d;          /* z extent (3D Mode-B probe / blind)   */
     double   ell_min;           /* = 2r                                 */
     double   ell_max;
     double   gamma;             /* D2-probe stencil ratio, e.g. 1.3     */
@@ -164,12 +165,13 @@ void adapter_init_default(adapter_t *a, adapter_mode_t mode,
  *   t_M, t_S:   measured wall-clock (s) for the M-proportional work and
  *               the pair-test work (broad + narrow) at the CURRENT ell.
  *   S_cur, M_cur: measured S, M at the current ell.
- *   n, px, py:  current particle state (Mode B only -- may be 0/NULL in
- *               Mode A or when probes are skipped). */
+ *   n, px, py, pz: current particle state (Mode B only -- may be 0/NULL in
+ *               Mode A or when probes are skipped). pz is used only when the
+ *               adapter's d == 3; pass NULL in 2D. */
 double adapter_step(adapter_t *a,
                     double t_M, double t_S,
                     long S_cur, int M_cur,
-                    int n, const double *px, const double *py);
+                    int n, const double *px, const double *py, const double *pz);
 
 /* Blind-search baseline. Evaluates ~blind_K candidate ells around ell_cur
  * (geometric, ratio blind_gamma) every blind_period frames and picks the
@@ -177,6 +179,6 @@ double adapter_step(adapter_t *a,
  * Internally rebuilds a fresh grid per candidate -- the expensive path the
  * closed-form method is meant to obsolete. */
 double adapter_blind_step(adapter_t *a,
-                          int n, const double *px, const double *py);
+                          int n, const double *px, const double *py, const double *pz);
 
 #endif

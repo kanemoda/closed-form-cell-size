@@ -136,7 +136,9 @@ void adapter_init_default(adapter_t *a, adapter_mode_t mode,
     a->d        = d;
     a->domain_w = domain_w;
     a->domain_h = domain_h;
-    a->V        = (d == 2) ? (domain_w * domain_h) : (domain_w * domain_h /* extend in 3D */);
+    /* V is informational only -- the formula uses the measured M_cur, not V.
+     * The 3D caller sets a->domain_d after init (needed by the Mode-B probe). */
+    a->V        = domain_w * domain_h;
     a->ell_cur  = ell_start;
     a->ell_min  = 2.0 * radius;
     /* ell_max heuristic: a quarter of the minimum domain extent (spec §7). */
@@ -163,7 +165,7 @@ void adapter_init_default(adapter_t *a, adapter_mode_t mode,
 double adapter_step(adapter_t *a,
                     double t_M, double t_S,
                     long S_cur, int M_cur,
-                    int n, const double *px, const double *py) {
+                    int n, const double *px, const double *py, const double *pz) {
     double t_start = now_s();
     a->last_did_probe = 0;
     a->last_D2_raw    = 0.0;
@@ -208,8 +210,16 @@ double adapter_step(adapter_t *a,
             /* Only probe if the stencil is interior to [ell_min, ell_max]. */
             if (ell_lo >= a->ell_min && ell_hi <= a->ell_max
                 && ell_lo < a->ell_cur && a->ell_cur < ell_hi) {
-                long S_lo = grid_count_S_at(a->domain_w, a->domain_h, n, px, py, ell_lo);
-                long S_hi = grid_count_S_at(a->domain_w, a->domain_h, n, px, py, ell_hi);
+                long S_lo, S_hi;
+                if (a->d == 3) {
+                    S_lo = grid_count_S_at3d(a->domain_w, a->domain_h, a->domain_d,
+                                             n, px, py, pz, ell_lo);
+                    S_hi = grid_count_S_at3d(a->domain_w, a->domain_h, a->domain_d,
+                                             n, px, py, pz, ell_hi);
+                } else {
+                    S_lo = grid_count_S_at(a->domain_w, a->domain_h, n, px, py, ell_lo);
+                    S_hi = grid_count_S_at(a->domain_w, a->domain_h, n, px, py, ell_hi);
+                }
                 if (S_lo > 0 && S_hi > 0 && S_cur > 0) {
                     double D_raw = adapter_estimate_D2(ell_lo, a->ell_cur, ell_hi,
                                                        (double)S_lo, (double)S_cur,
@@ -259,7 +269,7 @@ double adapter_step(adapter_t *a,
 }
 
 double adapter_blind_step(adapter_t *a,
-                          int n, const double *px, const double *py) {
+                          int n, const double *px, const double *py, const double *pz) {
     double t_start = now_s();
 
     if ((a->frame % (int64_t)a->blind_period) != 0 || n <= 0) {
@@ -292,11 +302,13 @@ double adapter_blind_step(adapter_t *a,
 
     for (int k = 0; k < K; k++) {
         grid_t g;
-        grid_init(&g, n, a->domain_w, a->domain_h, cands[k]);
+        if (a->d == 3) grid_init3d(&g, n, a->domain_w, a->domain_h, a->domain_d, cands[k]);
+        else           grid_init(&g, n, a->domain_w, a->domain_h, cands[k]);
 
         struct timespec ta, td;
         clock_gettime(CLOCK_MONOTONIC, &ta);
-        grid_build(&g, px, py);
+        if (a->d == 3) grid_build3d(&g, px, py, pz);
+        else           grid_build(&g, px, py);
         int n_cand = 0;
         while (grid_broad_phase(&g, pairs, pairs_cap, &n_cand) != 0) {
             pairs_cap *= 2;
@@ -304,7 +316,10 @@ double adapter_blind_step(adapter_t *a,
             if (!pairs) { grid_free(&g); a->last_overhead_s = now_s() - t_start; a->frame++; return a->ell_cur; }
         }
         int n_overlap;
-        narrow_phase(pairs, n_cand, px, py, a->blind_radius, pairs, &n_overlap);
+        if (a->d == 3)
+            narrow_phase3d(pairs, n_cand, px, py, pz, a->blind_radius, pairs, &n_overlap);
+        else
+            narrow_phase(pairs, n_cand, px, py, a->blind_radius, pairs, &n_overlap);
         clock_gettime(CLOCK_MONOTONIC, &td);
 
         double t_total = (double)(td.tv_sec - ta.tv_sec) +

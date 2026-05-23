@@ -145,7 +145,7 @@ static int g3_small_D2(void) {
         int  M_cur = 400;
         double t_M = 1e-6 * M_cur;
         double t_S = 1e-6 * S_cur;
-        double ell_next = adapter_step(&a, t_M, t_S, S_cur, M_cur, 0, NULL, NULL);
+        double ell_next = adapter_step(&a, t_M, t_S, S_cur, M_cur, 0, NULL, NULL, NULL);
         if (!isfinite(ell_next) || ell_next < a.ell_min || ell_next > a.ell_max) {
             fprintf(stderr,
                 "  D2=%.2f -> ell_next=%g BAD (out of [%.3f, %.3f])\n",
@@ -245,7 +245,7 @@ static void run_with_adapter(const config_t *cfg, adapter_mode_t mode,
         sum_td += (m.t_grid + m.t_broad + m.t_narrow);
 
         double ell_next = adapter_step(&a, t_M, t_S, m.S, m.num_cells,
-                                       s.n, s.px, s.py);
+                                       s.n, s.px, s.py, s.pz);
         sum_oh += a.last_overhead_s;
         if (a.last_overhead_s > max_oh) max_oh = a.last_overhead_s;
         if (a.last_did_probe) { n_probes++; sum_d2 += a.D2_hat; }
@@ -352,7 +352,7 @@ static int g6_mode_b_vs_oracle(void) {
             double t_S = (m.t_broad - m.t_broad_iter) + m.t_narrow;
             if (t_S < 0) t_S = 0;
             double ell_at_probe = a.ell_cur;       /* the ell the probe will use */
-            adapter_step(&a, t_M, t_S, m.S, m.num_cells, s.n, s.px, s.py);
+            adapter_step(&a, t_M, t_S, m.S, m.num_cells, s.n, s.px, s.py, s.pz);
             if (a.last_resized) grid_resize(&s.grid, a.ell_cur);
 
             /* Oracle slope at the adapter's probe ell (the pre-resize one),

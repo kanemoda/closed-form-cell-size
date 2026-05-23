@@ -5,8 +5,10 @@
 
 void config_default(config_t *cfg) {
     cfg->N           = 1000;
+    cfg->dim         = 2;
     cfg->domain_w    = 800.0;
     cfg->domain_h    = 600.0;
+    cfg->domain_d    = 0.0;     /* 3D configs set this (e.g. 200) */
     cfg->radius      = 0.5;
     cfg->restitution = 0.95;
     cfg->dt          = 1.0 / 60.0;
@@ -48,8 +50,10 @@ int config_load(const char *path, config_t *cfg) {
         return -1;
     }
     json_get_int   (&obj, "N",           &cfg->N);
+    json_get_int   (&obj, "dim",         &cfg->dim);
     json_get_double(&obj, "domain_w",    &cfg->domain_w);
     json_get_double(&obj, "domain_h",    &cfg->domain_h);
+    json_get_double(&obj, "domain_d",    &cfg->domain_d);
     json_get_double(&obj, "radius",      &cfg->radius);
     json_get_double(&obj, "restitution", &cfg->restitution);
     json_get_double(&obj, "dt",          &cfg->dt);

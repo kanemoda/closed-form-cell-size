@@ -25,8 +25,16 @@ typedef enum {
     SCEN_PULSE        = 5,   /* central attractive spring (radial oscillation)*/
     SCEN_MULTICLUSTER = 6,   /* K clusters converging toward common center    */
     SCEN_STREAM       = 7,   /* horizontal channel with y-confining force     */
+    SCEN_SETTLING     = 8,   /* gravity-driven settling into a floor layer    */
+                             /* (D2 -> d-1 drop test; spec's 3D scenario).    */
     SCEN_COUNT
 } scenario_id_t;
+
+/* Spec §9.1 scenario groups. 2D runs the first 8; 3D runs
+ * {stable, collapse, explosion, pulse, settling}. scenario_init /
+ * scenario_apply_forces dispatch on the sim's cfg.dim, so the same enum value
+ * selects the 2D or 3D variant. The 3D-unsupported scenarios (vortex, funnel,
+ * multicluster, stream) have no 3D initialiser. */
 
 scenario_id_t scenario_from_name(const char *name);
 const char   *scenario_name      (scenario_id_t id);

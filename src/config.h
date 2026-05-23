@@ -5,8 +5,10 @@
 
 typedef struct {
     int      N;             /* particle count                       */
-    double   domain_w;      /* domain width (x extent)              */
+    int      dim;           /* spatial dimension: 2 or 3 (default 2)*/
+    double   domain_w;      /* domain width  (x extent)             */
     double   domain_h;      /* domain height (y extent)             */
+    double   domain_d;      /* domain depth  (z extent; 3D only)    */
     double   radius;        /* particle radius (equal for all)      */
     double   restitution;   /* pair collision restitution (0..1)    */
     double   dt;            /* fixed integrator timestep            */

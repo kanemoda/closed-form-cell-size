@@ -22,6 +22,13 @@ void sim_init(sim_t *s, const config_t *cfg) {
     s->py  = (double *)calloc((size_t)s->n, sizeof(double));
     s->vx  = (double *)calloc((size_t)s->n, sizeof(double));
     s->vy  = (double *)calloc((size_t)s->n, sizeof(double));
+    if (cfg->dim == 3) {
+        s->pz = (double *)calloc((size_t)s->n, sizeof(double));
+        s->vz = (double *)calloc((size_t)s->n, sizeof(double));
+    } else {
+        s->pz = NULL;
+        s->vz = NULL;
+    }
 
     if (cfg->cell_size < 2.0 * cfg->radius) {
         fprintf(stderr,
@@ -30,7 +37,11 @@ void sim_init(sim_t *s, const config_t *cfg) {
     }
 
     rng_seed(&s->rng, cfg->seed);
-    grid_init(&s->grid, s->n, cfg->domain_w, cfg->domain_h, cfg->cell_size);
+    if (cfg->dim == 3)
+        grid_init3d(&s->grid, s->n, cfg->domain_w, cfg->domain_h,
+                    cfg->domain_d, cfg->cell_size);
+    else
+        grid_init(&s->grid, s->n, cfg->domain_w, cfg->domain_h, cfg->cell_size);
 
     s->pairs_cap        = 16 * s->n;
     if (s->pairs_cap < 1024) s->pairs_cap = 1024;
@@ -49,9 +60,11 @@ void sim_free(sim_t *s) {
     free(s->py);
     free(s->vx);
     free(s->vy);
+    free(s->pz);
+    free(s->vz);
     free(s->pairs);
     grid_free(&s->grid);
-    s->px = s->py = s->vx = s->vy = NULL;
+    s->px = s->py = s->vx = s->vy = s->pz = s->vz = NULL;
     s->pairs = NULL;
 }
 
@@ -70,6 +83,21 @@ static void wall_reflect(sim_t *s) {
         if (s->px[i] > W - r)    { s->px[i] = 2.0 * (W - r)    - s->px[i]; s->vx[i] = -s->vx[i]; }
         if (s->py[i] < r)        { s->py[i] = 2.0 * r          - s->py[i]; s->vy[i] = -s->vy[i]; }
         if (s->py[i] > H - r)    { s->py[i] = 2.0 * (H - r)    - s->py[i]; s->vy[i] = -s->vy[i]; }
+    }
+}
+
+static void wall_reflect3d(sim_t *s) {
+    const double r = s->cfg.radius;
+    const double W = s->cfg.domain_w;
+    const double H = s->cfg.domain_h;
+    const double D = s->cfg.domain_d;
+    for (int i = 0; i < s->n; i++) {
+        if (s->px[i] < r)        { s->px[i] = 2.0 * r       - s->px[i]; s->vx[i] = -s->vx[i]; }
+        if (s->px[i] > W - r)    { s->px[i] = 2.0 * (W - r) - s->px[i]; s->vx[i] = -s->vx[i]; }
+        if (s->py[i] < r)        { s->py[i] = 2.0 * r       - s->py[i]; s->vy[i] = -s->vy[i]; }
+        if (s->py[i] > H - r)    { s->py[i] = 2.0 * (H - r) - s->py[i]; s->vy[i] = -s->vy[i]; }
+        if (s->pz[i] < r)        { s->pz[i] = 2.0 * r       - s->pz[i]; s->vz[i] = -s->vz[i]; }
+        if (s->pz[i] > D - r)    { s->pz[i] = 2.0 * (D - r) - s->pz[i]; s->vz[i] = -s->vz[i]; }
     }
 }
 
@@ -100,6 +128,31 @@ void resolve_pair_collisions(double *vx, double *vy,
     }
 }
 
+void resolve_pair_collisions3d(double *vx, double *vy, double *vz,
+                               const double *px, const double *py, const double *pz,
+                               const pair_t *pairs, int npairs,
+                               double restitution) {
+    for (int k = 0; k < npairs; k++) {
+        int i = pairs[k].i, j = pairs[k].j;
+        double dx = px[j] - px[i];
+        double dy = py[j] - py[i];
+        double dz = pz[j] - pz[i];
+        double dist2 = dx * dx + dy * dy + dz * dz;
+        if (dist2 <= 0.0) continue;                 /* coincident -- normal undefined */
+        double inv = 1.0 / sqrt(dist2);
+        double nx  = dx * inv, ny = dy * inv, nz = dz * inv;
+        double rvx = vx[j] - vx[i];
+        double rvy = vy[j] - vy[i];
+        double rvz = vz[j] - vz[i];
+        double vrel_n = rvx * nx + rvy * ny + rvz * nz;
+        if (vrel_n >= 0.0) continue;                /* separating; do nothing */
+        double J  = -(1.0 + restitution) * vrel_n * 0.5;
+        double Jx = J * nx, Jy = J * ny, Jz = J * nz;
+        vx[j] += Jx;  vy[j] += Jy;  vz[j] += Jz;
+        vx[i] -= Jx;  vy[i] -= Jy;  vz[i] -= Jz;
+    }
+}
+
 /* Grow s->pairs buffer (used for both candidates and overlapping output) to
  * at least 'needed' entries. Doubles aggressively. */
 static void ensure_pair_capacity(sim_t *s, int needed) {
@@ -110,8 +163,9 @@ static void ensure_pair_capacity(sim_t *s, int needed) {
 }
 
 void sim_step(sim_t *s, sim_metrics_t *out) {
-    const double dt = s->cfg.dt;
-    const int    n  = s->n;
+    const double dt  = s->cfg.dt;
+    const int    n   = s->n;
+    const int    dim = s->cfg.dim;
 
     struct timespec t0, tg0, tg1, tb1, tn1, t1;
     clock_gettime(CLOCK_MONOTONIC, &t0);
@@ -120,18 +174,29 @@ void sim_step(sim_t *s, sim_metrics_t *out) {
      *     Dispatches on s->scenario_id; no-op for force-free scenarios. */
     scenario_apply_forces(s);
     /* 1b. position integration with the post-force velocity. */
-    for (int i = 0; i < n; i++) {
-        s->px[i] += s->vx[i] * dt;
-        s->py[i] += s->vy[i] * dt;
+    if (dim == 3) {
+        for (int i = 0; i < n; i++) {
+            s->px[i] += s->vx[i] * dt;
+            s->py[i] += s->vy[i] * dt;
+            s->pz[i] += s->vz[i] * dt;
+        }
+    } else {
+        for (int i = 0; i < n; i++) {
+            s->px[i] += s->vx[i] * dt;
+            s->py[i] += s->vy[i] * dt;
+        }
     }
 
     /* 2. wall reflection (perfectly elastic) */
-    wall_reflect(s);
+    if (dim == 3) wall_reflect3d(s); else wall_reflect(s);
 
     /* 3. grid build (timed, with internal O(M)/O(N) split for Phase 5) */
     double t_M_in = 0, t_N_in = 0;
     clock_gettime(CLOCK_MONOTONIC, &tg0);
-    grid_build_timed(&s->grid, s->px, s->py, &t_M_in, &t_N_in);
+    if (dim == 3)
+        grid_build_timed3d(&s->grid, s->px, s->py, s->pz, &t_M_in, &t_N_in);
+    else
+        grid_build_timed(&s->grid, s->px, s->py, &t_M_in, &t_N_in);
     clock_gettime(CLOCK_MONOTONIC, &tg1);
 
     /* 4. broad phase: emit candidate pairs (timed) */
@@ -147,15 +212,23 @@ void sim_step(sim_t *s, sim_metrics_t *out) {
     double t_broad_iter = grid_broad_phase_iter_time(&s->grid, &iter_checksum);
     (void)iter_checksum;
 
-    /* 5. narrow phase: circle-circle filter (in place; timed) */
+    /* 5. narrow phase: circle/sphere overlap filter (in place; timed) */
     int n_overlap;
-    narrow_phase(s->pairs, n_cand, s->px, s->py, s->cfg.radius,
-                 s->pairs, &n_overlap);
+    if (dim == 3)
+        narrow_phase3d(s->pairs, n_cand, s->px, s->py, s->pz, s->cfg.radius,
+                       s->pairs, &n_overlap);
+    else
+        narrow_phase(s->pairs, n_cand, s->px, s->py, s->cfg.radius,
+                     s->pairs, &n_overlap);
     clock_gettime(CLOCK_MONOTONIC, &tn1);
 
     /* 6. resolve overlapping-pair collisions */
-    resolve_pair_collisions(s->vx, s->vy, s->px, s->py,
-                            s->pairs, n_overlap, s->cfg.restitution);
+    if (dim == 3)
+        resolve_pair_collisions3d(s->vx, s->vy, s->vz, s->px, s->py, s->pz,
+                                  s->pairs, n_overlap, s->cfg.restitution);
+    else
+        resolve_pair_collisions(s->vx, s->vy, s->px, s->py,
+                                s->pairs, n_overlap, s->cfg.restitution);
 
     clock_gettime(CLOCK_MONOTONIC, &t1);
 
@@ -178,17 +251,29 @@ void sim_step(sim_t *s, sim_metrics_t *out) {
         out->t_N              = t_N_in;
         out->t_broad_iter     = t_broad_iter;
         out->kinetic_energy   = sim_total_kinetic_energy(s);
-        double mpx, mpy;
-        sim_total_momentum(s, &mpx, &mpy);
-        out->momentum_magnitude = sqrt(mpx * mpx + mpy * mpy);
+        if (dim == 3) {
+            double mx = 0, my = 0, mz = 0;
+            for (int i = 0; i < n; i++) { mx += s->vx[i]; my += s->vy[i]; mz += s->vz[i]; }
+            out->momentum_magnitude = sqrt(mx * mx + my * my + mz * mz);
+        } else {
+            double mpx, mpy;
+            sim_total_momentum(s, &mpx, &mpy);
+            out->momentum_magnitude = sqrt(mpx * mpx + mpy * mpy);
+        }
     }
 }
 
 double sim_total_kinetic_energy(const sim_t *s) {
     /* unit masses */
     double ke = 0.0;
-    for (int i = 0; i < s->n; i++) {
-        ke += 0.5 * (s->vx[i] * s->vx[i] + s->vy[i] * s->vy[i]);
+    if (s->cfg.dim == 3) {
+        for (int i = 0; i < s->n; i++) {
+            ke += 0.5 * (s->vx[i] * s->vx[i] + s->vy[i] * s->vy[i] + s->vz[i] * s->vz[i]);
+        }
+    } else {
+        for (int i = 0; i < s->n; i++) {
+            ke += 0.5 * (s->vx[i] * s->vx[i] + s->vy[i] * s->vy[i]);
+        }
     }
     return ke;
 }

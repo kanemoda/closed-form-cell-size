@@ -12,10 +12,12 @@ test_physics
 test_phase2
 test_phase4
 test_phase5
+test_phase6
 test_scenarios
 checkpoint
 diag
 compare_phase5
+compare_phase6
 out/
 .DS_Store
 *.log

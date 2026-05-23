@@ -21,8 +21,9 @@ typedef struct { int i, j; } pair_t;   /* always normalised so i < j */
  */
 typedef struct {
     double cell_size;
-    int    gw, gh;       /* grid width / height in cells */
-    int    n_cells;      /* = gw * gh                     */
+    int    dim;          /* 2 or 3 (set by grid_init / grid_init3d)  */
+    int    gw, gh, gd;   /* grid extent in cells (gd = 1 when dim==2)*/
+    int    n_cells;      /* = gw * gh * gd                           */
     int    n;            /* particle count                */
     int   *cell_count;   /* size n_cells                  */
     int   *cell_start;   /* size n_cells + 1              */
@@ -32,9 +33,15 @@ typedef struct {
                             incrementally during the count pass     */
     double domain_w;     /* kept for grid_resize / grid_count_S_at  */
     double domain_h;
+    double domain_d;     /* z extent (3D only; 0 when dim==2)        */
 } grid_t;
 
 void grid_init (grid_t *g, int n, double domain_w, double domain_h, double cell_size);
+
+/* 3D counterpart: cubic-ish cells of edge cell_size over a domain_w x
+ * domain_h x domain_d box. n_cells = gw*gh*gd. Sets dim=3. */
+void grid_init3d(grid_t *g, int n, double domain_w, double domain_h,
+                 double domain_d, double cell_size);
 void grid_free (grid_t *g);
 void grid_build(grid_t *g, const double *px, const double *py);
 
@@ -46,6 +53,12 @@ void grid_build(grid_t *g, const double *px, const double *py);
  * its EMA. */
 void grid_build_timed(grid_t *g, const double *px, const double *py,
                       double *t_M, double *t_N);
+
+/* 3D build (needs the z coordinate). Same counting-sort pipeline; only the
+ * per-particle cell index differs (cz*gh*gw + cy*gw + cx). */
+void grid_build3d(grid_t *g, const double *px, const double *py, const double *pz);
+void grid_build_timed3d(grid_t *g, const double *px, const double *py,
+                        const double *pz, double *t_M, double *t_N);
 
 /* Resize the grid in place to a new cell size (reallocates cell arrays as
  * needed). After grid_resize you must call grid_build again. Used by the
@@ -68,9 +81,15 @@ long grid_S(const grid_t *g);
 long grid_count_S_at(double domain_w, double domain_h, int n,
                      const double *px, const double *py, double ell);
 
+/* 3D count-only S probe (Mode B D2 estimator in 3D). */
+long grid_count_S_at3d(double domain_w, double domain_h, double domain_d, int n,
+                       const double *px, const double *py, const double *pz,
+                       double ell);
+
 /*
  * Broad phase: emit ALL candidate pairs from intra-cell + half-stencil,
- * with pair indices normalised so i < j. No distance check.
+ * with pair indices normalised so i < j. No distance check. Dispatches on
+ * g->dim: 4-neighbor half-stencil in 2D, 13-neighbor half-stencil in 3D.
  *
  * Returns 0 on success, -1 if pairs_out has insufficient capacity (in
  * which case *count_out is the number of pairs emitted before overflow).
@@ -87,6 +106,11 @@ void narrow_phase(const pair_t *cands, int n_cands,
                    const double *px, const double *py, double r,
                    pair_t *out, int *n_overlap);
 
+/* 3D sphere-sphere overlap filter (distance < 2r in 3D). */
+void narrow_phase3d(const pair_t *cands, int n_cands,
+                    const double *px, const double *py, const double *pz, double r,
+                    pair_t *out, int *n_overlap);
+
 /*
  * Convenience: broad + narrow in one call. Same buffer used as candidate
  * scratch and final output. Returns 0 on success, -1 on capacity overflow.
@@ -101,6 +125,16 @@ int bruteforce_find_overlapping_pairs(int n,
                                        const double *px, const double *py,
                                        double r,
                                        pair_t *pairs_out, int max_pairs, int *count_out);
+
+/* 3D convenience + brute-force reference (used by the Phase 6 correctness gate). */
+int grid_find_overlapping_pairs3d(const grid_t *g,
+                                   const double *px, const double *py, const double *pz,
+                                   double r,
+                                   pair_t *pairs_out, int max_pairs, int *count_out);
+int bruteforce_find_overlapping_pairs3d(int n,
+                                        const double *px, const double *py, const double *pz,
+                                        double r,
+                                        pair_t *pairs_out, int max_pairs, int *count_out);
 
 /* Phase 5: time the broad-phase OUTER CELL ITERATION ONLY, with the same
  * memory-access pattern as grid_broad_phase but no pair emission. Used to

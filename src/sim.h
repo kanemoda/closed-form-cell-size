@@ -64,6 +64,7 @@ typedef struct {
     int          n;
     double      *px, *py;
     double      *vx, *vy;
+    double      *pz, *vz;          /* 3D only (NULL when cfg.dim == 2)      */
     rng_state_t  rng;
     grid_t       grid;
     pair_t      *pairs;            /* doubles as broad candidate buffer + narrow output */
@@ -97,5 +98,11 @@ void resolve_pair_collisions(double *vx, double *vy,
                               const double *px, const double *py,
                               const pair_t *pairs, int npairs,
                               double restitution);
+
+/* 3D elastic-with-restitution impulse resolution (equal masses). */
+void resolve_pair_collisions3d(double *vx, double *vy, double *vz,
+                               const double *px, const double *py, const double *pz,
+                               const pair_t *pairs, int npairs,
+                               double restitution);
 
 #endif

@@ -106,9 +106,10 @@ int main(int argc, char **argv) {
         else fprintf(stderr, "main: unknown adapter_mode '%s' -- defaulting to off\n",
                      cfg.adapter_mode);
         if (adapter_mode != ADAPTER_MODE_OFF) {
-            adapter_init_default(&adapter, adapter_mode, 2,
+            adapter_init_default(&adapter, adapter_mode, cfg.dim,
                                  cfg.domain_w, cfg.domain_h,
                                  cfg.cell_size, cfg.radius);
+            adapter.domain_d = cfg.domain_d;   /* needed by the 3D Mode-B probe */
             if (cfg.adapter_K_D2    > 0)   adapter.K_D2     = cfg.adapter_K_D2;
             if (cfg.adapter_gamma   > 1.0) adapter.gamma    = cfg.adapter_gamma;
             if (cfg.adapter_alpha_w > 0.0) adapter.alpha_w  = cfg.adapter_alpha_w;
@@ -152,10 +153,10 @@ int main(int argc, char **argv) {
             double t_M_in = m.t_M + m.t_broad_iter;
             double ell_next;
             if (adapter_mode == ADAPTER_MODE_BLIND) {
-                ell_next = adapter_blind_step(&adapter, s.n, s.px, s.py);
+                ell_next = adapter_blind_step(&adapter, s.n, s.px, s.py, s.pz);
             } else {
                 ell_next = adapter_step(&adapter, t_M_in, t_S_in, m.S, m.num_cells,
-                                        s.n, s.px, s.py);
+                                        s.n, s.px, s.py, s.pz);
             }
             if (adapter_csv) fprintf(adapter_csv,
                 "%d,%.17g,%.17g,%.17g,%.17g,%.17g,%d,%ld,%.9g,%.9g,%d,%d,%.9g\n",
@@ -173,10 +174,16 @@ int main(int argc, char **argv) {
          * MUST be after sim_step (so positions reflect frame t) and MUST
          * not mutate s -- oracle_eval allocates its own grid/pair buffers. */
         if (oracle_csv && n_oracle_ells > 0) {
-            oracle_eval_sweep(s.n, s.px, s.py, cfg.radius,
-                              cfg.domain_w, cfg.domain_h,
-                              oracle_ells, n_oracle_ells, oracle_K_use,
-                              oracle_pts);
+            if (cfg.dim == 3)
+                oracle_eval_sweep3d(s.n, s.px, s.py, s.pz, cfg.radius,
+                                    cfg.domain_w, cfg.domain_h, cfg.domain_d,
+                                    oracle_ells, n_oracle_ells, oracle_K_use,
+                                    oracle_pts);
+            else
+                oracle_eval_sweep(s.n, s.px, s.py, cfg.radius,
+                                  cfg.domain_w, cfg.domain_h,
+                                  oracle_ells, n_oracle_ells, oracle_K_use,
+                                  oracle_pts);
             for (int i = 0; i < n_oracle_ells; i++) {
                 fprintf(oracle_csv,
                         "%d,%.17g,%d,%ld,%d,%.9g,%.9g,%.9g,%.9g\n",

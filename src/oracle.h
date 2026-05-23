@@ -60,4 +60,17 @@ void oracle_eval_split(int n, const double *px, const double *py, double radius,
                        double ell, int K,
                        oracle_point_t *out_sel, oracle_point_t *out_eval);
 
+/* 3D counterparts (3D grid, sphere narrow phase). Same semantics as the 2D
+ * versions; the split-sample variant feeds the 3D comparison's oracles. */
+void oracle_eval3d(int n, const double *px, const double *py, const double *pz,
+                   double radius, double domain_w, double domain_h, double domain_d,
+                   double ell, int K, oracle_point_t *out);
+void oracle_eval_sweep3d(int n, const double *px, const double *py, const double *pz,
+                         double radius, double domain_w, double domain_h, double domain_d,
+                         const double *ells, int n_ells, int K, oracle_point_t *out);
+void oracle_eval_split3d(int n, const double *px, const double *py, const double *pz,
+                         double radius, double domain_w, double domain_h, double domain_d,
+                         double ell, int K,
+                         oracle_point_t *out_sel, oracle_point_t *out_eval);
+
 #endif

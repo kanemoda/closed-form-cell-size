@@ -13,7 +13,7 @@
 
 static const char *names_arr[] = {
     "stable", "collapse", "explosion", "vortex",
-    "funnel", "pulse", "multicluster", "stream"
+    "funnel", "pulse", "multicluster", "stream", "settling"
 };
 
 const char *scenario_name(scenario_id_t id) {
@@ -375,6 +375,199 @@ static void force_stream(sim_t *s) {
     }
 }
 
+/* --- settling: gravity-driven fall onto the floor.
+ *
+ *   Gravity is sized to fall the gravity-axis extent in ~50 frames:
+ *   g = 2*H / (50*dt)^2. Mechanical energy is then bounded by ~N*g*H, which
+ *   stays well under the energy-gate ceiling at every scale (e.g. ~3.7e6 at
+ *   the 80x80 test config, N=400). Reflecting floor + dissipative (e<1)
+ *   collisions drain the released potential energy; the cloud collapses from
+ *   a space-filling distribution (D2 ~ d) to a thin floor layer (D2 ~ d-1) --
+ *   the spec's dimension-drop test. Force-driven, deterministic. --- */
+static double settling_gravity(const sim_t *s) {
+    double H = (s->cfg.dim == 3) ? s->cfg.domain_d : s->cfg.domain_h;
+    double T = 50.0 * s->cfg.dt;
+    return 2.0 * H / (T * T);
+}
+
+static void init_settling(sim_t *s) {
+    const double r = s->cfg.radius;
+    const double W = s->cfg.domain_w, H = s->cfg.domain_h;
+    place_nonoverlap_rect(s, 0, s->n, r, W - r, r, H - r);
+    for (int i = 0; i < s->n; i++) {
+        double th = rng_uniform(&s->rng, 0.0, 2.0 * M_PI);
+        s->vx[i]  = s->cfg.init_speed * 0.1 * cos(th);
+        s->vy[i]  = s->cfg.init_speed * 0.1 * sin(th);
+    }
+}
+
+static void force_settling(sim_t *s) {
+    const double dt = s->cfg.dt;
+    const double g  = settling_gravity(s);
+    for (int i = 0; i < s->n; i++) s->vy[i] -= g * dt;   /* toward the y=0 floor */
+}
+
+/* ============================================================ 3D scenarios */
+
+static void place_nonoverlap_box3d(sim_t *s, int from, int to,
+                                   double xlo, double xhi, double ylo, double yhi,
+                                   double zlo, double zhi) {
+    const double r      = s->cfg.radius;
+    const double rr_min = (2.0 * r) * (2.0 * r);
+    const int    max_t  = 200000;
+    for (int i = from; i < to; i++) {
+        int placed = 0;
+        for (int t = 0; t < max_t; t++) {
+            double x = rng_uniform(&s->rng, xlo, xhi);
+            double y = rng_uniform(&s->rng, ylo, yhi);
+            double z = rng_uniform(&s->rng, zlo, zhi);
+            int ok = 1;
+            for (int j = 0; j < i; j++) {
+                double dx = x - s->px[j], dy = y - s->py[j], dz = z - s->pz[j];
+                if (dx * dx + dy * dy + dz * dz < rr_min) { ok = 0; break; }
+            }
+            if (ok) { s->px[i] = x; s->py[i] = y; s->pz[i] = z; placed = 1; break; }
+        }
+        if (!placed) {
+            fprintf(stderr, "place_nonoverlap_box3d: failed at i=%d (density?)\n", i);
+            exit(1);
+        }
+    }
+}
+
+static void place_nonoverlap_ball3d(sim_t *s, int from, int to,
+                                    double cx, double cy, double cz, double R) {
+    const double r      = s->cfg.radius;
+    const double W = s->cfg.domain_w, H = s->cfg.domain_h, D = s->cfg.domain_d;
+    const double rr_min = (2.0 * r) * (2.0 * r);
+    const int    max_t  = 200000;
+    for (int i = from; i < to; i++) {
+        int placed = 0;
+        for (int t = 0; t < max_t; t++) {
+            double u   = rng_uniform(&s->rng, -1.0, 1.0);        /* cos(phi)     */
+            double th  = rng_uniform(&s->rng, 0.0, 2.0 * M_PI);  /* azimuth      */
+            double rho = cbrt(rng_uniform01(&s->rng)) * R;       /* uniform vol  */
+            double sp  = sqrt(1.0 - u * u);
+            double x   = cx + rho * sp * cos(th);
+            double y   = cy + rho * sp * sin(th);
+            double z   = cz + rho * u;
+            if (x < r || x > W - r || y < r || y > H - r || z < r || z > D - r) continue;
+            int ok = 1;
+            for (int j = 0; j < i; j++) {
+                double dx = x - s->px[j], dy = y - s->py[j], dz = z - s->pz[j];
+                if (dx * dx + dy * dy + dz * dz < rr_min) { ok = 0; break; }
+            }
+            if (ok) { s->px[i] = x; s->py[i] = y; s->pz[i] = z; placed = 1; break; }
+        }
+        if (!placed) {
+            fprintf(stderr, "place_nonoverlap_ball3d: failed at i=%d R=%g\n", i, R);
+            exit(1);
+        }
+    }
+}
+
+/* Random unit direction on the sphere, scaled by 'speed', into (vx,vy,vz). */
+static void rand_vel3d(sim_t *s, int i, double speed) {
+    double u  = rng_uniform(&s->rng, -1.0, 1.0);
+    double th = rng_uniform(&s->rng, 0.0, 2.0 * M_PI);
+    double sp = sqrt(1.0 - u * u);
+    s->vx[i] = speed * sp * cos(th);
+    s->vy[i] = speed * sp * sin(th);
+    s->vz[i] = speed * u;
+}
+
+static void init_stable_3d(sim_t *s) {
+    const double r = s->cfg.radius;
+    const double W = s->cfg.domain_w, H = s->cfg.domain_h, D = s->cfg.domain_d;
+    place_nonoverlap_box3d(s, 0, s->n, r, W - r, r, H - r, r, D - r);
+    for (int i = 0; i < s->n; i++) rand_vel3d(s, i, s->cfg.init_speed);
+}
+
+static void init_collapse_3d(sim_t *s) {
+    const double r = s->cfg.radius;
+    const double W = s->cfg.domain_w, H = s->cfg.domain_h, D = s->cfg.domain_d;
+    const double cx = W * 0.5, cy = H * 0.5, cz = D * 0.5;
+    place_nonoverlap_box3d(s, 0, s->n, r, W - r, r, H - r, r, D - r);
+    for (int i = 0; i < s->n; i++) {
+        double dx = s->px[i] - cx, dy = s->py[i] - cy, dz = s->pz[i] - cz;
+        double d  = sqrt(dx * dx + dy * dy + dz * dz);
+        if (d < 1e-9) { rand_vel3d(s, i, s->cfg.init_speed); }
+        else {
+            s->vx[i] = -s->cfg.init_speed * dx / d;
+            s->vy[i] = -s->cfg.init_speed * dy / d;
+            s->vz[i] = -s->cfg.init_speed * dz / d;
+        }
+    }
+}
+
+static void init_explosion_3d(sim_t *s) {
+    const double r = s->cfg.radius;
+    const double W = s->cfg.domain_w, H = s->cfg.domain_h, D = s->cfg.domain_d;
+    const double cx = W * 0.5, cy = H * 0.5, cz = D * 0.5;
+    /* Ball radius to pack N spheres at moderate fill: V_ball >= ~3 * N * (4/3 pi r^3). */
+    double R_for_N = cbrt(3.0 * (double)s->n) * (2.0 * r);
+    double R_max   = 0.45 * fmin(fmin(W, H), D) - r;
+    double R       = fmax(fmin(fmin(W, H), D) * 0.1, R_for_N);
+    if (R > R_max) R = R_max;
+    place_nonoverlap_ball3d(s, 0, s->n, cx, cy, cz, R);
+    for (int i = 0; i < s->n; i++) {
+        double dx = s->px[i] - cx, dy = s->py[i] - cy, dz = s->pz[i] - cz;
+        double d  = sqrt(dx * dx + dy * dy + dz * dz);
+        if (d < 1e-9) { rand_vel3d(s, i, s->cfg.init_speed); }
+        else {
+            s->vx[i] = s->cfg.init_speed * dx / d;
+            s->vy[i] = s->cfg.init_speed * dy / d;
+            s->vz[i] = s->cfg.init_speed * dz / d;
+        }
+    }
+}
+
+static void init_pulse_3d(sim_t *s) {
+    const double r = s->cfg.radius;
+    const double W = s->cfg.domain_w, H = s->cfg.domain_h, D = s->cfg.domain_d;
+    place_nonoverlap_box3d(s, 0, s->n, r, W - r, r, H - r, r, D - r);
+    for (int i = 0; i < s->n; i++) rand_vel3d(s, i, s->cfg.init_speed * 0.05);
+}
+
+static double pulse_r_mean3d(const sim_t *s) {
+    return 0.18 * fmin(fmin(s->cfg.domain_w, s->cfg.domain_h), s->cfg.domain_d);
+}
+static void force_pulse_3d(sim_t *s) {
+    const double W = s->cfg.domain_w, H = s->cfg.domain_h, D = s->cfg.domain_d;
+    const double dt = s->cfg.dt;
+    const double cx = W * 0.5, cy = H * 0.5, cz = D * 0.5;
+    const double k      = 4.0;
+    const double r_mean = pulse_r_mean3d(s);
+    const double r_amp  = 0.55 * r_mean;
+    const double omega  = 2.0 * M_PI / (100.0 * dt);    /* 100-frame period */
+    const double t      = (double)s->frame_index * dt;
+    const double r_eq   = r_mean + r_amp * sin(omega * t);
+    for (int i = 0; i < s->n; i++) {
+        double dx = s->px[i] - cx, dy = s->py[i] - cy, dz = s->pz[i] - cz;
+        double r2 = dx * dx + dy * dy + dz * dz;
+        if (r2 < 1e-12) continue;
+        double rr    = sqrt(r2);
+        double F_mag = -k * (rr - r_eq);
+        double inv_r = 1.0 / rr;
+        s->vx[i] += F_mag * dx * inv_r * dt;
+        s->vy[i] += F_mag * dy * inv_r * dt;
+        s->vz[i] += F_mag * dz * inv_r * dt;
+    }
+}
+
+static void init_settling_3d(sim_t *s) {
+    const double r = s->cfg.radius;
+    const double W = s->cfg.domain_w, H = s->cfg.domain_h, D = s->cfg.domain_d;
+    place_nonoverlap_box3d(s, 0, s->n, r, W - r, r, H - r, r, D - r);
+    for (int i = 0; i < s->n; i++) rand_vel3d(s, i, s->cfg.init_speed * 0.1);
+}
+
+static void force_settling_3d(sim_t *s) {
+    const double dt = s->cfg.dt;
+    const double g  = settling_gravity(s);
+    for (int i = 0; i < s->n; i++) s->vz[i] -= g * dt;   /* toward the z=0 floor */
+}
+
 /* ================================================================ vtable */
 typedef struct {
     void (*init)(sim_t *);
@@ -390,6 +583,21 @@ static const scenario_vt vtables[SCEN_COUNT] = {
     [SCEN_PULSE]        = { init_pulse,        force_pulse   },
     [SCEN_MULTICLUSTER] = { init_multicluster, NULL          },
     [SCEN_STREAM]       = { init_stream,       force_stream  },
+    [SCEN_SETTLING]     = { init_settling,     force_settling},
+};
+
+/* 3D variants. The four 3D-unsupported scenarios have a NULL init (caught by
+ * scenario_init). Indices match the shared enum. */
+static const scenario_vt vtables_3d[SCEN_COUNT] = {
+    [SCEN_STABLE]       = { init_stable_3d,    NULL            },
+    [SCEN_COLLAPSE]     = { init_collapse_3d,  NULL            },
+    [SCEN_EXPLOSION]    = { init_explosion_3d, NULL            },
+    [SCEN_VORTEX]       = { NULL,              NULL            },
+    [SCEN_FUNNEL]       = { NULL,              NULL            },
+    [SCEN_PULSE]        = { init_pulse_3d,     force_pulse_3d  },
+    [SCEN_MULTICLUSTER] = { NULL,              NULL            },
+    [SCEN_STREAM]       = { NULL,              NULL            },
+    [SCEN_SETTLING]     = { init_settling_3d,  force_settling_3d },
 };
 
 int scenario_has_forces(scenario_id_t id) {
@@ -402,13 +610,20 @@ void scenario_init(sim_t *s, scenario_id_t id) {
         fprintf(stderr, "scenario_init: bad id %d\n", (int)id);
         exit(1);
     }
+    const scenario_vt *vt = (s->cfg.dim == 3) ? &vtables_3d[id] : &vtables[id];
+    if (!vt->init) {
+        fprintf(stderr, "scenario_init: scenario '%s' not supported in %dD\n",
+                scenario_name(id), s->cfg.dim);
+        exit(1);
+    }
     s->scenario_id = (int)id;
     s->frame_index = 0;
-    vtables[id].init(s);
+    vt->init(s);
 }
 
 void scenario_apply_forces(sim_t *s) {
     int id = s->scenario_id;
     if (id < 0 || id >= SCEN_COUNT) return;
-    if (vtables[id].apply_forces) vtables[id].apply_forces(s);
+    const scenario_vt *vt = (s->cfg.dim == 3) ? &vtables_3d[id] : &vtables[id];
+    if (vt->apply_forces) vt->apply_forces(s);
 }

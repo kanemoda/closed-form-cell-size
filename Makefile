@@ -6,8 +6,8 @@ LDFLAGS := -lm
 CORE_SRC := src/rng.c src/json.c src/config.c src/grid.c src/sim.c src/log.c src/scenarios.c src/oracle.c src/baselines.c src/adapter.c
 CORE_OBJ := $(CORE_SRC:.c=.o)
 
-BINS  := simulator test_grid_vs_bruteforce test_physics test_phase2 test_scenarios test_phase4 test_phase5
-TOOLS := compare_phase5
+BINS  := simulator test_grid_vs_bruteforce test_physics test_phase2 test_scenarios test_phase4 test_phase5 test_phase6
+TOOLS := compare_phase5 compare_phase6
 
 .PHONY: all tools test clean
 all: $(BINS)
@@ -34,7 +34,13 @@ test_phase4: $(CORE_OBJ) tests/test_phase4.o
 test_phase5: $(CORE_OBJ) tests/test_phase5.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
+test_phase6: $(CORE_OBJ) tests/test_phase6.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
 compare_phase5: $(CORE_OBJ) tools/compare_phase5.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+compare_phase6: $(CORE_OBJ) tools/compare_phase6.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # -MMD -MP emits a .d alongside each .o listing the headers it includes, so a
@@ -50,6 +56,7 @@ test: $(BINS)
 	./test_scenarios
 	./test_phase4
 	./test_phase5
+	./test_phase6
 
 clean:
 	rm -f src/*.o tests/*.o tools/*.o src/*.d tests/*.d tools/*.d $(BINS) $(TOOLS)

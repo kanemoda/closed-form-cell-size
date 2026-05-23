@@ -123,10 +123,10 @@ static void run_adapter(const config_t *cfg, adapter_mode_t mode,
         if (t_S < 0) t_S = 0;
         double ell_next;
         if (mode == ADAPTER_MODE_BLIND)
-            ell_next = adapter_blind_step(&a, s.n, s.px, s.py);
+            ell_next = adapter_blind_step(&a, s.n, s.px, s.py, s.pz);
         else
             ell_next = adapter_step(&a, t_M, t_S, m.S, m.num_cells,
-                                    s.n, s.px, s.py);
+                                    s.n, s.px, s.py, s.pz);
         sum_oh += a.last_overhead_s;
         sum_ell += a.ell_cur;
         if (ell_series) ell_series[t] = a.ell_cur;
