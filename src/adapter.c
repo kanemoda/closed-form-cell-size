@@ -55,6 +55,77 @@ int adapter_should_resize(double ell_star, double ell_cur, double eps) {
     return fabs(r) > eps;
 }
 
+/* ==================================================== cost-model regression */
+
+cost_fit_t adapter_fit_cost_model(const double *M, const double *S,
+                                  const double *t, int n) {
+    cost_fit_t f;
+    memset(&f, 0, sizeof(f));
+    f.n = n;
+    if (n < 3 || !M || !S || !t) return f;   /* 3 params: need >= 3 points */
+
+    /* Predictor / response means (center to drop the intercept). */
+    double Mbar = 0.0, Sbar = 0.0, tbar = 0.0;
+    for (int i = 0; i < n; i++) { Mbar += M[i]; Sbar += S[i]; tbar += t[i]; }
+    Mbar /= n; Sbar /= n; tbar /= n;
+
+    /* Centered cross-products. */
+    double Smm = 0, Sss = 0, Sms = 0, Smt = 0, Sst = 0, Stt = 0;
+    for (int i = 0; i < n; i++) {
+        double dm = M[i] - Mbar, ds = S[i] - Sbar, dt = t[i] - tbar;
+        Smm += dm * dm; Sss += ds * ds; Sms += dm * ds;
+        Smt += dm * dt; Sst += ds * dt; Stt += dt * dt;
+    }
+
+    /* Standardise predictors -> the 2x2 normal matrix is [n, n*r; n*r, n]
+     * (r = corr(M,S)); det = n^2 (1 - r^2). Keeps magnitudes O(1) despite
+     * M ~ 1e4 cells and S ~ 1e5. Degenerate if either predictor is constant
+     * (no spread) or M, S are perfectly collinear. */
+    double sdM = sqrt(Smm / (double)n);
+    double sdS = sqrt(Sss / (double)n);
+    if (sdM <= 0.0 || sdS <= 0.0) return f;   /* a predictor has no spread */
+
+    double Suu = Smm / (sdM * sdM);           /* = n */
+    double Sww = Sss / (sdS * sdS);           /* = n */
+    double Suw = Sms / (sdM * sdS);
+    double Sut = Smt / sdM;
+    double Swt = Sst / sdS;
+    double det = Suu * Sww - Suw * Suw;
+    if (det <= 0.0) return f;                 /* collinear M, S */
+
+    double au = (Sut * Sww - Swt * Suw) / det;   /* standardised coeffs */
+    double bw = (Suu * Swt - Suw * Sut) / det;
+    double a  = au / sdM;                        /* back to raw units */
+    double b  = bw / sdS;
+    double c0 = tbar - a * Mbar - b * Sbar;
+    f.a = a; f.b = b; f.c0 = c0;
+
+    /* Residuals + R^2 against the raw (un-standardised) data. */
+    double ss_res = 0, sum_abs = 0, max_abs = 0, sum_rel = 0;
+    for (int i = 0; i < n; i++) {
+        double pred = c0 + a * M[i] + b * S[i];
+        double r = t[i] - pred, ar = fabs(r);
+        ss_res += r * r;
+        sum_abs += ar;
+        if (ar > max_abs) max_abs = ar;
+        if (t[i] > 0.0) sum_rel += ar / t[i];
+    }
+    f.r2             = (Stt > 0.0) ? (1.0 - ss_res / Stt) : 0.0;
+    f.rmse           = sqrt(ss_res / (double)n);
+    f.mean_abs_resid = sum_abs / (double)n;
+    f.max_abs_resid  = max_abs;
+    f.mean_rel_resid = sum_rel / (double)n;
+    f.ok             = 1;
+    return f;
+}
+
+void adapter_set_calibrated_weights(adapter_t *a, double a_coef, double b_coef) {
+    a->a_hat        = a_coef;
+    a->b_hat        = b_coef;
+    a->have_weights = 1;
+    a->calibrated   = 1;
+}
+
 /* ============================================================ controller */
 
 void adapter_init_default(adapter_t *a, adapter_mode_t mode,
@@ -106,8 +177,14 @@ double adapter_step(adapter_t *a,
         return a->ell_cur;
     }
 
-    /* (2) update cost coefficients via EMA. */
-    if (M_cur > 0 && S_cur > 0) {
+    /* (2) update cost coefficients via EMA -- UNLESS calibrated. When the
+     * coefficients come from the one-time regression (adapter_set_calibrated_
+     * weights), a, b are fixed hardware constants and the per-frame sub-timers
+     * are NOT used to update them: the t_M/t_S split mis-attributes the
+     * broad-phase per-cell loop overhead into t_S and inflates b. The
+     * sub-timers still arrive here (and are logged by callers) for the
+     * paper's Pillar-i analysis -- they just no longer drive a, b. */
+    if (!a->calibrated && M_cur > 0 && S_cur > 0) {
         double a_new = t_M / (double)M_cur;
         double b_new = t_S / (double)S_cur;
         if (!a->have_weights) {

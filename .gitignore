@@ -1,6 +1,10 @@
 *.o
 src/*.o
 tests/*.o
+*.d
+src/*.d
+tests/*.d
+tools/*.d
 build/
 simulator
 test_grid_vs_bruteforce

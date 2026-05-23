@@ -19,7 +19,11 @@
  *
  *   G6. Mode B D2-hat tracks the oracle's local log-log slope at ell_cur.
  *
- *   G7. Adapter per-frame overhead is a small fraction of t_detect.
+ *   G7. Cost-model regression (adapter_fit_cost_model): on synthetic
+ *       T = c0 + a*M + b*S data it recovers (a, b, c0) exactly with R^2 = 1
+ *       on noise-free input, and within tolerance with high R^2 under
+ *       multiplicative noise. This is the unit-level check on the
+ *       calibration that feeds the closed form (Pillar-i machinery).
  */
 
 #define _POSIX_C_SOURCE 199309L
@@ -380,6 +384,68 @@ static int g6_mode_b_vs_oracle(void) {
     return ok;
 }
 
+/* ====================================================== G7 regression fit */
+
+static int g7_cost_model_fit(void) {
+    /* Synthetic linear cost T = c0 + a*M + b*S with KNOWN coefficients.
+     * Structure mirrors the real calibration pool: M = V/ell^2 depends only
+     * on the ell index, while S depends on ell AND a per-frame clustering
+     * factor -- so M and S are not collinear and the 2-predictor fit is
+     * identifiable (the same reason pooling frames works in practice). */
+    const double a_true = 2.5e-9, b_true = 1.3e-8, c0_true = 8.0e-5;
+    const double V = 480000.0;
+    const int n_ells = 12, n_frames = 8, n = n_ells * n_frames;
+
+    double *M  = (double *)malloc(sizeof(double) * n);
+    double *S  = (double *)malloc(sizeof(double) * n);
+    double *Tp = (double *)malloc(sizeof(double) * n);   /* noise-free */
+    double *Tn = (double *)malloc(sizeof(double) * n);   /* 1% noise   */
+
+    uint64_t rs = 0x12345ULL;   /* deterministic LCG -> reproducible noise */
+    int idx = 0;
+    for (int ie = 0; ie < n_ells; ie++) {
+        double ell = pow(1.3, (double)ie);          /* 1 .. ~23 */
+        double Mv  = V / (ell * ell);
+        for (int fr = 0; fr < n_frames; fr++) {
+            double cluster = 0.5 + 1.5 * (double)fr / (double)(n_frames - 1);
+            double Sv      = 4000.0 * cluster * pow(ell, 1.6);
+            double Tperf   = c0_true + a_true * Mv + b_true * Sv;
+            rs = rs * 6364136223846793005ULL + 1442695040888963407ULL;
+            double u01 = (double)(rs >> 33) / (double)(1ULL << 31);  /* [0,1) */
+            M[idx]  = Mv;
+            S[idx]  = Sv;
+            Tp[idx] = Tperf;
+            Tn[idx] = Tperf * (1.0 + 0.01 * (2.0 * u01 - 1.0));
+            idx++;
+        }
+    }
+
+    cost_fit_t fp = adapter_fit_cost_model(M, S, Tp, n);
+    cost_fit_t fn = adapter_fit_cost_model(M, S, Tn, n);
+
+    double pa = fabs(fp.a - a_true) / a_true;
+    double pb = fabs(fp.b - b_true) / b_true;
+    double pc = fabs(fp.c0 - c0_true) / c0_true;
+    int perfect_ok = fp.ok && pa < 1e-6 && pb < 1e-6 && pc < 1e-6
+                   && fp.r2 > 1.0 - 1e-9 && fp.max_abs_resid < 1e-10;
+
+    double na = fabs(fn.a - a_true) / a_true;
+    double nb = fabs(fn.b - b_true) / b_true;
+    int noisy_ok = fn.ok && na < 0.05 && nb < 0.05 && fn.r2 > 0.99;
+
+    fprintf(stderr,
+        "  noise-free : a rel=%.2e b rel=%.2e c0 rel=%.2e R^2=%.12f max|r|=%.2e  %s\n",
+        pa, pb, pc, fp.r2, fp.max_abs_resid, perfect_ok ? "OK" : "FAIL");
+    fprintf(stderr,
+        "  1%% noise   : a rel=%.2e b rel=%.2e R^2=%.6f rmse=%.2e  %s\n",
+        na, nb, fn.r2, fn.rmse, noisy_ok ? "OK" : "FAIL");
+
+    free(M); free(S); free(Tp); free(Tn);
+    int ok = perfect_ok && noisy_ok;
+    fprintf(stderr, "  G7 cost-model regression: %s\n", ok ? "OK" : "FAIL");
+    return ok;
+}
+
 /* =================================================================== main */
 
 int main(void) {
@@ -403,6 +469,9 @@ int main(void) {
 
     fprintf(stderr, "\n--- G6 Mode B D2_hat tracks oracle local slope ---\n");
     all_ok &= g6_mode_b_vs_oracle();
+
+    fprintf(stderr, "\n--- G7 cost-model regression (adapter_fit_cost_model) ---\n");
+    all_ok &= g7_cost_model_fit();
 
     fprintf(stderr, "\n%s\n", all_ok ? "Phase 5: ALL OK" : "Phase 5: FAILED");
     return all_ok ? 0 : 1;

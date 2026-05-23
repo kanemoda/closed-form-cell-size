@@ -62,6 +62,11 @@ typedef struct {
     double   D2_hat;
     int      have_weights;
     int      have_D2;
+    int      calibrated;        /* 1 iff a_hat/b_hat are regression-fitted  */
+                                /* constants; when set, adapter_step does   */
+                                /* NOT update them from the per-frame       */
+                                /* sub-timers (those still flow in for the  */
+                                /* paper's logging, just not into a,b).     */
     int64_t  frame;
 
     /* diagnostics from the most recent adapter_step() */
@@ -80,6 +85,48 @@ typedef struct {
     double   blind_radius;      /* needed to evaluate candidates        */
     int      blind_K;           /* number of candidates (~9)            */
 } adapter_t;
+
+
+/* ---- regression calibration of the cost-model coefficients (spec §2/§8) --
+ *
+ * The closed form needs a, b in T = c0 + a*M + b*S. These are HARDWARE
+ * constants, not per-frame quantities. Phase 5's first cut derived them
+ * per frame from the t_M / t_S sub-timer split (a=t_M/M, b=t_S/S); that
+ * split mis-attributes the broad-phase per-cell loop overhead into t_S,
+ * inflating b and making the formula undershoot ell.
+ *
+ * The fix is to calibrate (a, b, c0) ONCE by least-squares regression:
+ * sweep ell across a few representative frames, collect (M_i, S_i,
+ * t_detect_i), and fit T ~= c0 + a*M + b*S directly. The regression does
+ * not depend on the sub-timer attribution at all -- it discovers the a, b
+ * that minimise total prediction error. The fitted R^2 IS the spec's
+ * Pillar-i validation (cost-model linearity): high R^2 means the linear
+ * model holds and the calibrated coefficients are trustworthy; large
+ * residuals flag genuine cache/bandwidth nonlinearity.
+ *
+ * Only the ell-dependent terms a*M and b*S enter ell* (c0 cancels in the
+ * minimisation), but all three are fitted for the R^2/residual report. */
+typedef struct {
+    double c0, a, b;         /* fitted T = c0 + a*M + b*S (a,b feed ell*)   */
+    double r2;               /* coefficient of determination on the pool   */
+    double rmse;             /* root-mean-square residual (same units as t)*/
+    double mean_abs_resid;   /* mean |residual|                            */
+    double max_abs_resid;    /* max  |residual|                            */
+    double mean_rel_resid;   /* mean |residual| / t_detect (dimensionless) */
+    int    n;                /* number of (M,S,t) samples fitted           */
+    int    ok;               /* 1 iff the normal equations were solvable   */
+} cost_fit_t;
+
+/* Ordinary least-squares fit of t[i] ~= c0 + a*M[i] + b*S[i] over n
+ * samples. Centers + standardises the predictors so the 2x2 normal
+ * system stays well-conditioned despite M and S living on very different
+ * scales. Needs n >= 3 and non-degenerate M, S spread. */
+cost_fit_t adapter_fit_cost_model(const double *M, const double *S,
+                                  const double *t, int n);
+
+/* Install regression-fitted cost coefficients. After this call adapter_step
+ * uses these fixed a, b instead of the per-frame sub-timer EMA. */
+void adapter_set_calibrated_weights(adapter_t *a, double a_coef, double b_coef);
 
 
 /* ---- math kernels: reproduce math_kernel_reference.py exactly --- */
