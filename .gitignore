@@ -7,7 +7,11 @@ test_grid_vs_bruteforce
 test_physics
 test_phase2
 test_phase4
+test_phase5
+test_scenarios
 checkpoint
+diag
+compare_phase5
 out/
 .DS_Store
 *.log

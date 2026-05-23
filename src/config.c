@@ -29,6 +29,15 @@ void config_default(config_t *cfg) {
     cfg->oracle_ell_max     = 0.0;
     cfg->oracle_gamma       = 0.0;
     cfg->oracle_K           = 0;
+
+    cfg->adapter_mode[0]    = '\0';
+    cfg->adapter_csv_path[0] = '\0';
+    cfg->adapter_K_D2       = 0;
+    cfg->adapter_gamma      = 0.0;
+    cfg->adapter_alpha_w    = 0.0;
+    cfg->adapter_alpha_D    = 0.0;
+    cfg->adapter_eps        = 0.0;
+    cfg->adapter_ell_max    = 0.0;
 }
 
 int config_load(const char *path, config_t *cfg) {
@@ -64,6 +73,17 @@ int config_load(const char *path, config_t *cfg) {
     json_get_double(&obj, "oracle_ell_max",   &cfg->oracle_ell_max);
     json_get_double(&obj, "oracle_gamma",     &cfg->oracle_gamma);
     json_get_int   (&obj, "oracle_K",         &cfg->oracle_K);
+
+    json_get_string(&obj, "adapter_mode",     cfg->adapter_mode,
+                    (int)sizeof(cfg->adapter_mode));
+    json_get_string(&obj, "adapter_csv_path", cfg->adapter_csv_path,
+                    (int)sizeof(cfg->adapter_csv_path));
+    json_get_int   (&obj, "adapter_K_D2",    &cfg->adapter_K_D2);
+    json_get_double(&obj, "adapter_gamma",   &cfg->adapter_gamma);
+    json_get_double(&obj, "adapter_alpha_w", &cfg->adapter_alpha_w);
+    json_get_double(&obj, "adapter_alpha_D", &cfg->adapter_alpha_D);
+    json_get_double(&obj, "adapter_eps",     &cfg->adapter_eps);
+    json_get_double(&obj, "adapter_ell_max", &cfg->adapter_ell_max);
     return 0;
 }
 

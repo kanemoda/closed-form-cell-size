@@ -1,0 +1,17 @@
+{
+    "N":                 2000,
+    "domain_w":          200,
+    "domain_h":          150,
+    "radius":            0.5,
+    "restitution":       0.95,
+    "dt":                0.01666666666666,
+    "cell_size":         2.0,
+    "num_frames":        200,
+    "seed":              7,
+    "init_speed":        10.0,
+    "log_enabled":       true,
+    "log_csv_path":      "out/adapter_demo.csv",
+    "scenario":          "pulse",
+    "adapter_mode":      "modeB",
+    "adapter_csv_path":  "out/adapter_demo_controller.csv"
+}

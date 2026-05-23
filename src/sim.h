@@ -35,10 +35,26 @@ typedef struct {
     long   S;                     /* sum of n_i^2 over cells (Renyi-2 building block) */
     int    candidate_pairs;       /* broad-phase output count */
     int    collisions;            /* narrow-phase survivors / impulse count */
-    double t_grid;                /* seconds */
+    double t_grid;                /* seconds; total grid_build time = t_M + t_N */
     double t_broad;
     double t_narrow;
     double t_total;
+    /* Phase 5: spec-mandated split of grid build into O(M) and O(N) work.
+     *   t_M = grid_build's strictly-O(M) sub-passes (cell-count clear,
+     *         prefix sum, offset clear). Per-cell coefficient signal.
+     *   t_N = grid_build's strictly-O(N) sub-passes (cell-index compute,
+     *         count + S accumulation, scatter). Insertion cost; logged
+     *         but not used by the closed-form formula (which only cares
+     *         about ell-dependent terms).
+     *   The pair-test coefficient signal for the controller is
+     *   t_broad + t_narrow (spec calls this t_S). */
+    double t_M;
+    double t_N;
+    /* Broad-phase outer-loop overhead (O(M)), measured by a dryrun pass
+     * over cell_start without pair emission. The controller adds this to
+     * t_M (because it scales with M, not S) and subtracts it from t_broad
+     * to recover the actual pair-emit cost. */
+    double t_broad_iter;
     double kinetic_energy;
     double momentum_magnitude;
 } sim_metrics_t;

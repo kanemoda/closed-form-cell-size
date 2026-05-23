@@ -41,6 +41,24 @@ typedef struct {
     double   oracle_ell_max;
     double   oracle_gamma;
     int      oracle_K;
+
+    /* Phase 5: adaptive cell-size controller (§7). When adapter_mode is
+     * non-empty, main.c instantiates an adapter_t and calls it after every
+     * sim_step, resizing the grid when the controller asks for a new ell.
+     *   adapter_mode: "off" (default), "modeA" (D2=d), "modeB" (probed D2),
+     *                 or "blind" (7-9 candidate search baseline).
+     *   adapter_csv_path: per-frame controller trace (frame, ell_cur, ell_raw,
+     *                 D2_hat, a_hat, b_hat, resized, overhead_s); empty disables.
+     *   adapter_K_D2 / adapter_gamma / adapter_alpha_D / adapter_eps:
+     *                 see spec §7 defaults; <=0 -> use the adapter's defaults. */
+    char     adapter_mode[16];
+    char     adapter_csv_path[256];
+    int      adapter_K_D2;
+    double   adapter_gamma;
+    double   adapter_alpha_w;
+    double   adapter_alpha_D;
+    double   adapter_eps;
+    double   adapter_ell_max;
 } config_t;
 
 void config_default(config_t *cfg);

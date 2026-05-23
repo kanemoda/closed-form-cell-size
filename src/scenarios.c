@@ -254,14 +254,37 @@ static void force_funnel(sim_t *s) {
     }
 }
 
-/* --- pulse: a constant attractive central spring.
+/* --- pulse: breathing radial spring.
  *
- *   We interpret the spec's "periodic radial spring" as the natural
- *   periodic oscillation of particles around the centre of attraction
- *   (period pi/sqrt(k) for the half-amplitude / spread). Choosing a
- *   constant k keeps the integrator exactly symplectic and energy
- *   bounded; the *spread* still oscillates with a clean period, which
- *   is what the spec gate (tracking-lag stress) actually needs. --- */
+ *   The earlier implementation used a constant attractive spring. At
+ *   experiment scale (N=50K, e=0.95) the dissipative collisions drain
+ *   energy faster than the symplectic spring can store it; mean_r
+ *   collapses one-way to the 2r floor by ~frame 180 and stays there.
+ *
+ *   To genuinely sustain breathing the spring's equilibrium *radius*
+ *   moves periodically: F_radial = -k * (|p-c| - r_eq(t)) with
+ *   r_eq(t) = r_mean + r_amp * sin(omega * t). Each cycle the moving
+ *   equilibrium does net positive work on the cloud, injecting energy
+ *   to offset collisional cooling. Energy stays bounded because the
+ *   potential U = (k/2)*(|p-c| - r_eq)^2 is bounded, and the cloud is
+ *   confined inside the box anyway.
+ *
+ *   Period is set to ~100 frames at dt=1/60 (i.e. 1.67 s) so the
+ *   breathing is many frames long relative to dt and visibly tracks
+ *   in the cost-optimal-cell-size trajectory. Deterministic. --- */
+
+/* derived scenario constants (used by force pass and tests). */
+static double pulse_r_mean(const sim_t *s) {
+    return 0.18 * fmin(s->cfg.domain_w, s->cfg.domain_h);
+}
+static double pulse_r_amp(const sim_t *s) {
+    return 0.55 * pulse_r_mean(s);
+}
+static double pulse_omega(const sim_t *s) {
+    /* 100-frame period regardless of dt. */
+    return 2.0 * M_PI / (100.0 * s->cfg.dt);
+}
+
 static void init_pulse(sim_t *s) {
     const double r = s->cfg.radius;
     const double W = s->cfg.domain_w, H = s->cfg.domain_h;
@@ -277,11 +300,25 @@ static void force_pulse(sim_t *s) {
     const double W  = s->cfg.domain_w, H = s->cfg.domain_h;
     const double dt = s->cfg.dt;
     const double cx = W * 0.5, cy = H * 0.5;
-    /* omega_natural = sqrt(k) = 2 rad/s. spread-period = pi/omega ≈ 1.57 s. */
-    const double k_spring = 4.0;
+    const double k        = 4.0;
+    const double r_mean   = pulse_r_mean(s);
+    const double r_amp    = pulse_r_amp(s);
+    const double omega    = pulse_omega(s);
+    const double t        = (double)s->frame_index * dt;
+    const double r_eq     = r_mean + r_amp * sin(omega * t);
+
     for (int i = 0; i < s->n; i++) {
-        s->vx[i] += -k_spring * (s->px[i] - cx) * dt;
-        s->vy[i] += -k_spring * (s->py[i] - cy) * dt;
+        double dx = s->px[i] - cx;
+        double dy = s->py[i] - cy;
+        double r2 = dx * dx + dy * dy;
+        if (r2 < 1e-12) continue;            /* at the center -- force undefined */
+        double r  = sqrt(r2);
+        /* radial force magnitude (signed): pulls inward when r>r_eq, pushes
+         * outward when r<r_eq. Components: F = F_mag * (dx,dy)/r. */
+        double F_mag = -k * (r - r_eq);
+        double inv_r = 1.0 / r;
+        s->vx[i] += F_mag * dx * inv_r * dt;
+        s->vy[i] += F_mag * dy * inv_r * dt;
     }
 }
 

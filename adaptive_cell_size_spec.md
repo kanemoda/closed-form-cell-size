@@ -307,10 +307,24 @@ both before any `ℓ*` claim is trusted.
   with stable `a, b`. *Test:* from the per-frame timer logs, plot `t_M` vs `M` and
   `t_S` vs `S` across all frames/scenarios; check linearity and `R²`; report where
   cache/bandwidth effects bend the line.
-- **Pillar ii — power-law scaling.** `S(ℓ) ∝ ℓ^{D₂}` in the scaling regime. *Test:*
-  from the oracle runs (which sweep `S(ℓ)` over all candidate `ℓ` each frame), plot
-  `log S` vs `log ℓ`; check local straightness; extract `D₂` and its scale-drift
-  `s''` (the latter feeds the §6 convergence prediction).
+- **Pillar ii — *local* power-law scaling.** `S(ℓ)` is **not** a clean global
+  power law on the dynamic scenarios we care about. The large-N pre-Phase-5
+  diagnostic (`tools/diag.c`, N=50K, ~400–600 frames) confirms this directly:
+  `log S` vs `log ℓ` is *locally power-law-like* but visibly curved, and the
+  local log-log slope `D₂(ℓ) ≡ d log S / d log ℓ` varies with `ℓ` over the
+  operative range. The clean asymptote `D₂ → d` (space-filling regime) sits
+  **above** the operative `ℓ` window — at the large-`ℓ` end where `M(ℓ)`
+  becomes O(1) and the discretisation washes out, not at the cost-optimal
+  scale where the algorithm actually runs. The §6 convergence theory already
+  handles this honestly: it works in `s(x) = log S(e^x)` and decomposes the
+  step into a local slope `s'(x) = D₂(x)` plus curvature `s''(x)`, with the
+  contraction factor `c = |s''| / [D₂(d + D₂)]`; the curvature controls how
+  much one step undershoots, not whether the method works. Mode B's 3-point
+  probe measures `D₂(ℓ_cur)` *locally*, exactly the quantity the formula
+  needs. *Test:* from the oracle runs (which sweep `S(ℓ)` each frame), plot
+  `log S` vs `log ℓ`; verify **local** straightness in a window around the
+  current operating point (not global linearity); extract `D₂(ℓ)` and its
+  scale-drift `s''` and feed both into the §6 convergence prediction.
 
 ---
 

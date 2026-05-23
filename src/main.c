@@ -8,6 +8,8 @@
 #include "scenarios.h"
 #include "log.h"
 #include "oracle.h"
+#include "adapter.h"
+#include <string.h>
 
 #define ORACLE_MAX_PTS 64
 
@@ -91,6 +93,43 @@ int main(int argc, char **argv) {
         }
     }
 
+    /* Phase 5: optional adaptive cell-size controller. */
+    adapter_t     adapter;
+    adapter_mode_t adapter_mode = ADAPTER_MODE_OFF;
+    FILE         *adapter_csv   = NULL;
+    int           adapter_on    = 0;
+    if (cfg.adapter_mode[0] != '\0') {
+        if      (strcmp(cfg.adapter_mode, "modeA") == 0) adapter_mode = ADAPTER_MODE_A;
+        else if (strcmp(cfg.adapter_mode, "modeB") == 0) adapter_mode = ADAPTER_MODE_B;
+        else if (strcmp(cfg.adapter_mode, "blind") == 0) adapter_mode = ADAPTER_MODE_BLIND;
+        else if (strcmp(cfg.adapter_mode, "off")   == 0) adapter_mode = ADAPTER_MODE_OFF;
+        else fprintf(stderr, "main: unknown adapter_mode '%s' -- defaulting to off\n",
+                     cfg.adapter_mode);
+        if (adapter_mode != ADAPTER_MODE_OFF) {
+            adapter_init_default(&adapter, adapter_mode, 2,
+                                 cfg.domain_w, cfg.domain_h,
+                                 cfg.cell_size, cfg.radius);
+            if (cfg.adapter_K_D2    > 0)   adapter.K_D2     = cfg.adapter_K_D2;
+            if (cfg.adapter_gamma   > 1.0) adapter.gamma    = cfg.adapter_gamma;
+            if (cfg.adapter_alpha_w > 0.0) adapter.alpha_w  = cfg.adapter_alpha_w;
+            if (cfg.adapter_alpha_D > 0.0) adapter.alpha_D  = cfg.adapter_alpha_D;
+            if (cfg.adapter_eps     > 0.0) adapter.eps      = cfg.adapter_eps;
+            if (cfg.adapter_ell_max > 0.0) adapter.ell_max  = cfg.adapter_ell_max;
+            adapter_on = 1;
+            fprintf(stderr,
+                "adapter: mode=%s ell0=%.3f ell_min=%.3f ell_max=%.3f "
+                "K_D2=%d gamma=%.2f alpha_w=%.2f alpha_D=%.2f eps=%.3f\n",
+                cfg.adapter_mode, adapter.ell_cur, adapter.ell_min, adapter.ell_max,
+                adapter.K_D2, adapter.gamma, adapter.alpha_w, adapter.alpha_D, adapter.eps);
+        }
+    }
+    if (adapter_on && cfg.adapter_csv_path[0] != '\0') {
+        adapter_csv = fopen(cfg.adapter_csv_path, "w");
+        if (adapter_csv) fputs(
+            "frame,ell_cur,ell_raw,D2_hat,a_hat,b_hat,M_cur,S_cur,t_M,t_S,"
+            "resized,did_probe,overhead_s\n", adapter_csv);
+    }
+
     double ke0 = sim_total_kinetic_energy(&s);
     double pxt0, pyt0;
     sim_total_momentum(&s, &pxt0, &pyt0);
@@ -100,8 +139,33 @@ int main(int argc, char **argv) {
     oracle_point_t oracle_pts[ORACLE_MAX_PTS];
     for (int t = 0; t < cfg.num_frames; t++) {
         sim_metrics_t m = { .frame = t };
-        sim_step(&s, csv ? &m : NULL);
+        /* Always pass &m -- the adapter needs S_cur / M_cur / t_M / t_S
+         * whether or not CSV logging is enabled. */
+        sim_step(&s, &m);
         if (csv) log_write_row(csv, &m);
+
+        if (adapter_on) {
+            /* Spec §7: t_M = clear + prefix + cell-iteration (broad-phase
+             * outer loop); t_S = pair-test inner work + narrow phase. */
+            double t_S_in = (m.t_broad - m.t_broad_iter) + m.t_narrow;
+            if (t_S_in < 0) t_S_in = 0;            /* timer noise floor   */
+            double t_M_in = m.t_M + m.t_broad_iter;
+            double ell_next;
+            if (adapter_mode == ADAPTER_MODE_BLIND) {
+                ell_next = adapter_blind_step(&adapter, s.n, s.px, s.py);
+            } else {
+                ell_next = adapter_step(&adapter, t_M_in, t_S_in, m.S, m.num_cells,
+                                        s.n, s.px, s.py);
+            }
+            if (adapter_csv) fprintf(adapter_csv,
+                "%d,%.17g,%.17g,%.17g,%.17g,%.17g,%d,%ld,%.9g,%.9g,%d,%d,%.9g\n",
+                t, adapter.ell_cur, adapter.last_ell_raw, adapter.D2_hat,
+                adapter.a_hat, adapter.b_hat, m.num_cells, m.S,
+                t_M_in, t_S_in,
+                adapter.last_resized, adapter.last_did_probe,
+                adapter.last_overhead_s);
+            if (adapter.last_resized) grid_resize(&s.grid, ell_next);
+        }
         for (int k = 0; k < 5; k++) {
             if (t == snap_frames[k]) { dump_snapshot(snap, t, &s); break; }
         }
@@ -130,6 +194,7 @@ int main(int argc, char **argv) {
     log_close(csv);
     if (snap) fclose(snap);
     if (oracle_csv) fclose(oracle_csv);
+    if (adapter_csv) fclose(adapter_csv);
 
     double ke1 = sim_total_kinetic_energy(&s);
     double pxt1, pyt1;

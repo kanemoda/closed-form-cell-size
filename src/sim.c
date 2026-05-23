@@ -128,9 +128,10 @@ void sim_step(sim_t *s, sim_metrics_t *out) {
     /* 2. wall reflection (perfectly elastic) */
     wall_reflect(s);
 
-    /* 3. grid build (timed) */
+    /* 3. grid build (timed, with internal O(M)/O(N) split for Phase 5) */
+    double t_M_in = 0, t_N_in = 0;
     clock_gettime(CLOCK_MONOTONIC, &tg0);
-    grid_build(&s->grid, s->px, s->py);
+    grid_build_timed(&s->grid, s->px, s->py, &t_M_in, &t_N_in);
     clock_gettime(CLOCK_MONOTONIC, &tg1);
 
     /* 4. broad phase: emit candidate pairs (timed) */
@@ -139,6 +140,12 @@ void sim_step(sim_t *s, sim_metrics_t *out) {
         ensure_pair_capacity(s, s->pairs_cap * 2);
     }
     clock_gettime(CLOCK_MONOTONIC, &tb1);
+
+    /* Broad-phase outer-iter cost calibration -- separates t_M-prop from
+     * t_S-prop in t_broad. Cheap; one walk over cell_start.            */
+    long iter_checksum = 0;
+    double t_broad_iter = grid_broad_phase_iter_time(&s->grid, &iter_checksum);
+    (void)iter_checksum;
 
     /* 5. narrow phase: circle-circle filter (in place; timed) */
     int n_overlap;
@@ -167,6 +174,9 @@ void sim_step(sim_t *s, sim_metrics_t *out) {
         out->t_broad          = ts_diff_s(&tg1, &tb1);
         out->t_narrow         = ts_diff_s(&tb1, &tn1);
         out->t_total          = ts_diff_s(&t0,  &t1);
+        out->t_M              = t_M_in;
+        out->t_N              = t_N_in;
+        out->t_broad_iter     = t_broad_iter;
         out->kinetic_energy   = sim_total_kinetic_energy(s);
         double mpx, mpy;
         sim_total_momentum(s, &mpx, &mpy);

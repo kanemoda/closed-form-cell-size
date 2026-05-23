@@ -262,8 +262,14 @@ static int g5_csv_determinism(void) {
      *   7 t_grid, 8 t_broad, 9 t_narrow, 10 t_total,
      *   11 kinetic_energy, 12 momentum_magnitude
      */
-    const int det_cols[]   = { 0, 1, 2, 3, 4, 5, 6, 11, 12 };
+    /* CSV columns:
+     *   0:frame 1:cell_size 2:N 3:num_cells 4:S 5:candidate_pairs 6:collisions
+     *   7:t_grid 8:t_broad 9:t_narrow 10:t_total 11:t_M 12:t_N
+     *   13:kinetic_energy 14:momentum_magnitude
+     * Deterministic = 0..6 and 13..14; wall-clock timers = 7..12. */
+    const int det_cols[]   = { 0, 1, 2, 3, 4, 5, 6, 13, 14 };
     const int n_det        = (int)(sizeof(det_cols) / sizeof(det_cols[0]));
+    const int N_COLS       = 15;
     const int timer_cols[] = { 7, 8, 9, 10 };
 
     while (fgets(line1, sizeof(line1), f1) && fgets(line2, sizeof(line2), f2)) {
@@ -271,8 +277,8 @@ static int g5_csv_determinism(void) {
         memcpy(buf1, line1, sizeof(buf1));
         memcpy(buf2, line2, sizeof(buf2));
         char *s1 = buf1, *s2 = buf2;
-        char *toks1[13] = {0}, *toks2[13] = {0};
-        for (int c = 0; c < 13; c++) {
+        char *toks1[16] = {0}, *toks2[16] = {0};
+        for (int c = 0; c < N_COLS; c++) {
             toks1[c] = csv_next(&s1);
             toks2[c] = csv_next(&s2);
             if (!toks1[c] || !toks2[c]) { ok = 0; goto done; }

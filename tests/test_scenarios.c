@@ -297,9 +297,11 @@ static int csv_det_eq(const char *p1, const char *p2, int *rows_out, int *mism_o
         memcpy(b1, l1, sizeof(b1));
         memcpy(b2, l2, sizeof(b2));
         char *s1 = b1, *s2 = b2;
-        char *t1[13] = {0}, *t2[13] = {0};
-        for (int c = 0; c < 13; c++) { t1[c] = csv_next(&s1); t2[c] = csv_next(&s2); }
-        static const int det[] = { 0, 1, 2, 3, 4, 5, 6, 11, 12 };
+        /* CSV columns after Phase 5: see log.c header. Deterministic cols are
+         *   0..6 (frame..collisions) and 13..14 (kinetic_energy, momentum). */
+        char *t1[16] = {0}, *t2[16] = {0};
+        for (int c = 0; c < 15; c++) { t1[c] = csv_next(&s1); t2[c] = csv_next(&s2); }
+        static const int det[] = { 0, 1, 2, 3, 4, 5, 6, 13, 14 };
         for (int k = 0; k < 9; k++) {
             if (!t1[det[k]] || !t2[det[k]] || strcmp(t1[det[k]], t2[det[k]]) != 0) mism++;
         }

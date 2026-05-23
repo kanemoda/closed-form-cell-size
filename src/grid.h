@@ -28,15 +28,45 @@ typedef struct {
     int   *cell_start;   /* size n_cells + 1              */
     int   *sorted_idx;   /* size n: particle ids by cell  */
     int   *cell_idx;     /* size n: cell id per particle  */
+    long   S_cached;     /* Sum n_i^2 from the last build, computed
+                            incrementally during the count pass     */
+    double domain_w;     /* kept for grid_resize / grid_count_S_at  */
+    double domain_h;
 } grid_t;
 
 void grid_init (grid_t *g, int n, double domain_w, double domain_h, double cell_size);
 void grid_free (grid_t *g);
 void grid_build(grid_t *g, const double *px, const double *py);
 
-/* M(l) = number of cells, S(l) = sum of n_i^2 over cells. */
+/* Like grid_build, but fills *t_M (the strictly O(M) sub-pass: cell-count
+ * memset + prefix sum + offset memset) and *t_N (the strictly O(N)
+ * sub-passes: cell_idx compute + count+S accumulation + scatter). Either
+ * pointer may be NULL. Used by the adaptive controller, which wants
+ * t_M / M and t_S / S as the per-cell and per-pair coefficient inputs to
+ * its EMA. */
+void grid_build_timed(grid_t *g, const double *px, const double *py,
+                      double *t_M, double *t_N);
+
+/* Resize the grid in place to a new cell size (reallocates cell arrays as
+ * needed). After grid_resize you must call grid_build again. Used by the
+ * adaptive controller; cheap when n_cells does not change. */
+void grid_resize(grid_t *g, double new_cell_size);
+
+/* M(l) = number of cells, S(l) = sum of n_i^2 over cells.
+ * grid_S returns the value cached during the last grid_build (O(1));
+ * no extra pass over cells. */
 int  grid_M(const grid_t *g);
 long grid_S(const grid_t *g);
+
+/* Count-only occupancy probe at an arbitrary cell size: runs only the
+ * count pass for a fresh grid at 'ell' over the same particles and
+ * returns S = sum n_i^2. No prefix sum, no scatter, no sorted_idx;
+ * O(N + M(ell)) but the M term is just one memset over a scratch
+ * counts array. Used by the Mode B D2 probe at ell/gamma and ell*gamma.
+ *
+ * Allocates internally; safe with concurrent grid state (does not touch g). */
+long grid_count_S_at(double domain_w, double domain_h, int n,
+                     const double *px, const double *py, double ell);
 
 /*
  * Broad phase: emit ALL candidate pairs from intra-cell + half-stencil,
@@ -71,5 +101,13 @@ int bruteforce_find_overlapping_pairs(int n,
                                        const double *px, const double *py,
                                        double r,
                                        pair_t *pairs_out, int max_pairs, int *count_out);
+
+/* Phase 5: time the broad-phase OUTER CELL ITERATION ONLY, with the same
+ * memory-access pattern as grid_broad_phase but no pair emission. Used to
+ * split t_broad into its O(M) component (which belongs in the controller's
+ * t_M) and its O(S) component (the inner pair-emit, which belongs in t_S).
+ * Returns the elapsed wall-clock (s) of the dryrun. The integer return
+ * value (a checksum) is opaque -- only there to defeat dead-code elimination. */
+double grid_broad_phase_iter_time(const grid_t *g, long *checksum_out);
 
 #endif
