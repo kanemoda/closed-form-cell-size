@@ -48,4 +48,16 @@ void oracle_eval_sweep(int n, const double *px, const double *py, double radius,
                        const double *ells, int n_ells, int K,
                        oracle_point_t *out);
 
+/* Split-sample evaluation (de-biasing). Times the full detect pipeline
+ * (build+broad+narrow) 2K times on the SAME (snapshot, ell), interleaved into
+ * two independent groups, and returns each group's median as two independent
+ * t_detect estimates. The per-frame oracle SELECTS argmin over 'out_sel' and
+ * REPORTS the corresponding 'out_eval', so the reported cost is not the
+ * optimistically-biased minimum of the same noisy sample it was chosen on.
+ * out_sel / out_eval share ell, S, num_cells; only the timings differ. */
+void oracle_eval_split(int n, const double *px, const double *py, double radius,
+                       double domain_w, double domain_h,
+                       double ell, int K,
+                       oracle_point_t *out_sel, oracle_point_t *out_eval);
+
 #endif

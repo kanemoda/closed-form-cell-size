@@ -107,3 +107,79 @@ void oracle_eval_sweep(int n, const double *px, const double *py, double radius,
                     ells[i], K, &out[i]);
     }
 }
+
+void oracle_eval_split(int n, const double *px, const double *py, double radius,
+                       double domain_w, double domain_h,
+                       double ell, int K,
+                       oracle_point_t *out_sel, oracle_point_t *out_eval) {
+    grid_t g;
+    grid_init(&g, n, domain_w, domain_h, ell);
+
+    int pairs_cap = 16 * n;
+    if (pairs_cap < 1024) pairs_cap = 1024;
+    pair_t *pairs = (pair_t *)malloc(sizeof(pair_t) * (size_t)pairs_cap);
+    if (!pairs) { fprintf(stderr, "oracle_eval_split: malloc failed\n"); exit(1); }
+
+    if (K < 1) K = 1;
+    /* 2K full-pipeline timings, interleaved into SEL (even k) / EVAL (odd k)
+     * so both groups see the same systematic conditions (no A-then-B drift). */
+    double *g_sel = (double *)malloc(sizeof(double) * (size_t)K);
+    double *b_sel = (double *)malloc(sizeof(double) * (size_t)K);
+    double *n_sel = (double *)malloc(sizeof(double) * (size_t)K);
+    double *g_ev  = (double *)malloc(sizeof(double) * (size_t)K);
+    double *b_ev  = (double *)malloc(sizeof(double) * (size_t)K);
+    double *n_ev  = (double *)malloc(sizeof(double) * (size_t)K);
+
+    int n_cand = 0;
+    long S_last = 0;
+    int  M_last = 0;
+
+    for (int k = 0; k < 2 * K; k++) {
+        struct timespec ta, tb, tc, td;
+        clock_gettime(CLOCK_MONOTONIC, &ta);
+        grid_build(&g, px, py);
+        clock_gettime(CLOCK_MONOTONIC, &tb);
+
+        while (grid_broad_phase(&g, pairs, pairs_cap, &n_cand) != 0) {
+            pairs_cap *= 2;
+            pairs = (pair_t *)realloc(pairs, sizeof(pair_t) * (size_t)pairs_cap);
+            if (!pairs) { fprintf(stderr, "oracle_eval_split: realloc failed\n"); exit(1); }
+        }
+        clock_gettime(CLOCK_MONOTONIC, &tc);
+
+        int n_overlap;
+        narrow_phase(pairs, n_cand, px, py, radius, pairs, &n_overlap);
+        clock_gettime(CLOCK_MONOTONIC, &td);
+
+        int idx = k / 2;
+        if ((k & 1) == 0) {
+            g_sel[idx] = ts_diff_s(&ta, &tb);
+            b_sel[idx] = ts_diff_s(&tb, &tc);
+            n_sel[idx] = ts_diff_s(&tc, &td);
+        } else {
+            g_ev[idx]  = ts_diff_s(&ta, &tb);
+            b_ev[idx]  = ts_diff_s(&tb, &tc);
+            n_ev[idx]  = ts_diff_s(&tc, &td);
+        }
+        S_last = grid_S(&g);
+        M_last = grid_M(&g);
+    }
+
+    out_sel->ell  = ell;  out_eval->ell  = ell;
+    out_sel->num_cells = M_last;  out_eval->num_cells = M_last;
+    out_sel->S    = S_last;       out_eval->S    = S_last;
+    out_sel->candidate_pairs = n_cand;  out_eval->candidate_pairs = n_cand;
+    out_sel->t_grid   = median_double(g_sel, K);
+    out_sel->t_broad  = median_double(b_sel, K);
+    out_sel->t_narrow = median_double(n_sel, K);
+    out_sel->t_detect = out_sel->t_grid + out_sel->t_broad + out_sel->t_narrow;
+    out_eval->t_grid   = median_double(g_ev, K);
+    out_eval->t_broad  = median_double(b_ev, K);
+    out_eval->t_narrow = median_double(n_ev, K);
+    out_eval->t_detect = out_eval->t_grid + out_eval->t_broad + out_eval->t_narrow;
+
+    free(g_sel); free(b_sel); free(n_sel);
+    free(g_ev);  free(b_ev);  free(n_ev);
+    free(pairs);
+    grid_free(&g);
+}

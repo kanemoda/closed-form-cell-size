@@ -42,6 +42,37 @@ overhead. Calibrated Mode A also jumped from 4–9x to **1.2–1.4x**: the
 coefficient error, not the `D2:=d` assumption, was the dominant source of its
 old badness. Full calibrated tables and the per-scenario R² are below.
 
+## Update 2 — split-sample oracle de-biasing
+
+The per-frame and static oracles SELECT an ell by argmin over noisy timed
+sweeps. Selecting *and* reporting on the same sample biases the oracle low
+(winner's curse: it reports the luckiest-fast ell of that draw), so any
+"× vs oracle" ratio is inflated. Fix (`oracle_eval_split`): SELECT the ell on
+one independent set of timing repeats, EVALUATE the reported cost on a second.
+(The static oracle was already split by construction — selection in
+`find_static_best_ell`, reporting from a separate `run_fixed`; this is now
+explicit.) Re-run, N=8K, 200 frames:
+
+| scenario     | static/PF (headroom over best fixed ℓ) | Closed-B/PF | Closed-B vs static |
+|---           |----------------------------------------|-------------|--------------------|
+| stable       | 1.132 (+13%) | 1.136 | tie |
+| collapse     | 1.144 (+14%) | 1.158 | static slightly better |
+| explosion    | 1.280 (+28%) | 1.405 | static better (transient lag) |
+| vortex       | 1.169 (+17%) | 1.198 | static slightly better |
+| funnel       | 1.222 (+22%) | 1.205 | **Closed-B beats static** |
+| pulse        | 1.288 (+29%) | 1.218 | **Closed-B beats static** |
+| multicluster | 1.248 (+25%) | 1.344 | static better |
+| stream       | 1.326 (+33%) | 1.297 | **Closed-B beats static** |
+
+The de-biasing moved the per-frame oracle up only ~1–2% (the argmin-over-16
+winner's curse is mild at median-of-3 timing), so the calibrated Closed-B/PF
+ratios above match the in-sample table to within run-to-run noise. The clean
+new result is the **true headroom**: a perfect per-frame method beats the best
+fixed ell by **+13% (quasi-static) to +33% (flowing)** — and calibrated
+Closed-B captures essentially all of it on the time-varying scenarios, *beating
+the static oracle* on funnel / pulse / stream. The split-sample harness is
+reused by the 3D comparison.
+
 ## Decisions
 
 - **Pulse scenario, breathing equilibrium.** The carryover constant-spring

@@ -150,23 +150,27 @@ static void run_per_frame_oracle(const config_t *cfg, const double *ells, int n_
     sim_t s; sim_init(&s, &mod);
     scenario_init(&s, scenario_from_name(mod.scenario));
     double sum_ell = 0;
-    oracle_point_t *pts = (oracle_point_t *)malloc(sizeof(*pts) * n_ells);
+    /* Split-sample (de-biasing): at each frame we SELECT the argmin ell on one
+     * independent timing sample and REPORT the cost of that ell on a second.
+     * Selecting and reporting on the same noisy sweep biases the oracle low
+     * (it always reports the luckiest-fast ell of that draw); the split fixes
+     * it. The per-frame oracle does NOT advance the sim at the chosen ell --
+     * it is the non-perturbing per-frame upper bound on any adaptive method,
+     * so the sim still steps at the FIXED cfg.cell_size, then we probe. */
+    oracle_point_t *sel  = (oracle_point_t *)malloc(sizeof(*sel)  * n_ells);
+    oracle_point_t *eval = (oracle_point_t *)malloc(sizeof(*eval) * n_ells);
     for (int t = 0; t < mod.num_frames; t++) {
-        /* Note: per-frame oracle does NOT advance the sim at the best ell;
-         * we measure t_detect from the oracle's own grid build (the spec
-         * defines the per-frame oracle as the upper bound on any adaptive
-         * method, evaluated non-perturbatively on each frame's snapshot).
-         * So we still step the sim at the FIXED cfg.cell_size, then probe. */
         sim_step(&s, NULL);
-        oracle_eval_sweep(s.n, s.px, s.py, mod.radius, mod.domain_w, mod.domain_h,
-                          ells, n_ells, 3, pts);
+        for (int i = 0; i < n_ells; i++)
+            oracle_eval_split(s.n, s.px, s.py, mod.radius, mod.domain_w, mod.domain_h,
+                              ells[i], 3, &sel[i], &eval[i]);
         int best = 0;
         for (int i = 1; i < n_ells; i++)
-            if (pts[i].t_detect < pts[best].t_detect) best = i;
-        t_detect_us[t] = pts[best].t_detect * 1e6;
-        sum_ell += pts[best].ell;
+            if (sel[i].t_detect < sel[best].t_detect) best = i;
+        t_detect_us[t] = eval[best].t_detect * 1e6;   /* report the EVAL sample */
+        sum_ell += eval[best].ell;
     }
-    free(pts);
+    free(sel); free(eval);
     sim_free(&s);
     if (mean_ell_out) *mean_ell_out = sum_ell / mod.num_frames;
 }
@@ -339,7 +343,12 @@ static void run_scenario(scenario_id_t scen_id, int N, int frames) {
     stats(t, frames, &res[n_methods]); res[n_methods].name = "Density(sqrt(V/N))";
     n_methods++;
 
-    fprintf(stderr, "  Static oracle (sweep) ...\n"); fflush(stderr);
+    fprintf(stderr, "  Static oracle (sweep, split-sample) ...\n"); fflush(stderr);
+    /* Split-sample by construction: find_static_best_ell SELECTS the best
+     * fixed ell on one timing pass (one run_fixed per candidate), and the
+     * run_fixed below REPORTS that ell's per-frame series on a *fresh*,
+     * independent timing pass. So the reported static-oracle cost is not the
+     * optimistic minimum of the selection draw. */
     double ell_stat = find_static_best_ell(&cfg, ells, n_ells);
     run_fixed(&cfg, ell_stat, t, &res[n_methods].mean_ell);
     stats(t, frames, &res[n_methods]); res[n_methods].name = "Static-oracle";
