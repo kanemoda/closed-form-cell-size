@@ -7,7 +7,7 @@ CORE_SRC := src/rng.c src/json.c src/config.c src/grid.c src/sim.c src/log.c src
 CORE_OBJ := $(CORE_SRC:.c=.o)
 
 BINS  := simulator test_grid_vs_bruteforce test_physics test_phase2 test_scenarios test_phase4 test_phase5 test_phase6
-TOOLS := compare_phase5 compare_phase6
+TOOLS := compare_phase5 compare_phase6 validate_experiment headroom
 
 .PHONY: all tools test clean
 all: $(BINS)
@@ -41,6 +41,12 @@ compare_phase5: $(CORE_OBJ) tools/compare_phase5.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 compare_phase6: $(CORE_OBJ) tools/compare_phase6.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+validate_experiment: $(CORE_OBJ) tools/validate_experiment.o
+	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
+
+headroom: $(CORE_OBJ) tools/headroom.o
 	$(CC) $(CFLAGS) -o $@ $^ $(LDFLAGS)
 
 # -MMD -MP emits a .d alongside each .o listing the headers it includes, so a

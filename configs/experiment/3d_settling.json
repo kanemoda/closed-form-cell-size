@@ -1,0 +1,15 @@
+{
+    "N": 50000,
+    "dim": 3,
+    "scenario": "settling",
+    "domain_w": 200,
+    "domain_h": 200,
+    "domain_d": 200,
+    "radius": 0.5,
+    "restitution": 0.95,
+    "dt": 0.016666666666666666,
+    "cell_size": 2.0,
+    "num_frames": 100,
+    "seed": 1,
+    "init_speed": 10.0
+}
