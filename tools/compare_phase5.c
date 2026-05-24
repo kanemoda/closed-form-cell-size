@@ -150,27 +150,28 @@ static void run_per_frame_oracle(const config_t *cfg, const double *ells, int n_
     sim_t s; sim_init(&s, &mod);
     scenario_init(&s, scenario_from_name(mod.scenario));
     double sum_ell = 0;
-    /* Split-sample (de-biasing): at each frame we SELECT the argmin ell on one
-     * independent timing sample and REPORT the cost of that ell on a second.
-     * Selecting and reporting on the same noisy sweep biases the oracle low
-     * (it always reports the luckiest-fast ell of that draw); the split fixes
-     * it. The per-frame oracle does NOT advance the sim at the chosen ell --
-     * it is the non-perturbing per-frame upper bound on any adaptive method,
-     * so the sim still steps at the FIXED cfg.cell_size, then we probe. */
-    oracle_point_t *sel  = (oracle_point_t *)malloc(sizeof(*sel)  * n_ells);
-    oracle_point_t *eval = (oracle_point_t *)malloc(sizeof(*eval) * n_ells);
+    /* Single-pass per-frame oracle (median-of-K=3): SELECT the argmin ell and
+     * REPORT its cost from the same sweep. This carries a small (<=~2%)
+     * winner's-curse bias (Phase 7 measured it on the frozen control); it is
+     * negligible for THIS comparison where the methods sit at 1.0-1.5x, and is
+     * ~2x cheaper than the split-sample variant -- the saving funds seed
+     * averaging, which is what arXiv credibility actually needs. (The
+     * split-sample harness in tools/headroom.c is retained for the headroom
+     * measurement, where the 1-2% bias mattered.) The per-frame oracle does NOT
+     * advance the sim at the chosen ell -- it is the non-perturbing per-frame
+     * upper bound, so the sim steps at the FIXED cfg.cell_size, then we probe. */
+    oracle_point_t *pts = (oracle_point_t *)malloc(sizeof(*pts) * n_ells);
     for (int t = 0; t < mod.num_frames; t++) {
         sim_step(&s, NULL);
-        for (int i = 0; i < n_ells; i++)
-            oracle_eval_split(s.n, s.px, s.py, mod.radius, mod.domain_w, mod.domain_h,
-                              ells[i], 3, &sel[i], &eval[i]);
+        oracle_eval_sweep(s.n, s.px, s.py, mod.radius, mod.domain_w, mod.domain_h,
+                          ells, n_ells, 3, pts);
         int best = 0;
         for (int i = 1; i < n_ells; i++)
-            if (sel[i].t_detect < sel[best].t_detect) best = i;
-        t_detect_us[t] = eval[best].t_detect * 1e6;   /* report the EVAL sample */
-        sum_ell += eval[best].ell;
+            if (pts[i].t_detect < pts[best].t_detect) best = i;
+        t_detect_us[t] = pts[best].t_detect * 1e6;
+        sum_ell += pts[best].ell;
     }
-    free(sel); free(eval);
+    free(pts);
     sim_free(&s);
     if (mean_ell_out) *mean_ell_out = sum_ell / mod.num_frames;
 }
@@ -293,9 +294,14 @@ static void run_scenario(scenario_id_t scen_id, int N, int frames, uint64_t seed
         scenario_name(scen_id), N, frames);
     fflush(stderr);
 
-    /* Candidate ell sweep for static & per-frame oracles. */
+    /* Candidate ell ladder for the static & per-frame oracles: ~8 rungs
+     * bracketing the density-baseline optimum (cfg.cell_size), [0.4db, 2.5db]
+     * clamped to >= 2r. Tight enough to keep the multi-seed run tractable, wide
+     * enough to bracket every scenario's optimum (Phase 9: 2D optima ~0.6-1.0 db).
+     * Ericson ell=2r is reported separately below. */
     double ells[32];
-    int n_ells = oracle_make_geo_sweep(2.0 * cfg.radius, 20.0, 1.25, ells, 32);
+    double db = cfg.cell_size;
+    int n_ells = oracle_make_geo_sweep(fmax(2.0 * cfg.radius, 0.4 * db), 2.5 * db, 1.3, ells, 32);
 
     /* One-time regression calibration of the closed form's cost coefficients
      * (spec §2/§8). Fit over the same candidate sweep across a few
@@ -418,11 +424,18 @@ int main(int argc, char **argv) {
             N, frames, (unsigned long long)seed);
     fprintf(stderr, "===================================================================\n");
 
-    /* multicluster's 4 disks saturate above ~20K in 800x600 (packing jams);
-     * cap it at the largest N that packs and note it (Phase 7 / TODO item 1). */
+    /* Some scenarios' geometry saturates at high N in 800x600 (rejection
+     * sampling jams) -- cap each at the largest N it packs and note it, rather
+     * than crash (Phase 7 / TODO item 1):
+     *   multicluster: 4 disks            -> ~20K
+     *   vortex:       thin spiral arms   -> ~50K (fails ~76K)
+     *   stream:       thin H*0.1 channel -> ~50K
+     * All three pack at N=50K (validated); they do not pack at N=100K. */
     for (int i = 0; i < n_scen; i++) {
         int N_use = N;
         if (scenarios[i] == SCEN_MULTICLUSTER && N > 20000) N_use = 20000;
+        if (scenarios[i] == SCEN_VORTEX       && N > 50000) N_use = 50000;
+        if (scenarios[i] == SCEN_STREAM       && N > 50000) N_use = 50000;
         run_scenario(scenarios[i], N_use, frames, seed);
     }
     return 0;

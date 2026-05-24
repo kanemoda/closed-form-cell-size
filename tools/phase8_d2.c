@@ -269,27 +269,28 @@ static d2cfg_t make(const char *name, int dim, int n) {
 static int idepth(int N, int k) { int d = (int)(log((double)N)/log((double)k) + 0.5); return d < 2 ? 2 : d; }
 
 int main(int argc, char **argv) {
-    int dim = 2, N = 8000;
+    int dim = 2, N = 8000, off = 0;
     if (argc > 1) dim = atoi(argv[1]);
     if (argc > 2) N = atoi(argv[2]);
+    if (argc > 3) off = atoi(argv[3]);   /* seed offset -> independent realisations */
 
     d2cfg_t cfgs[8]; int nc = 0;
     if (dim == 2) {
-        cfgs[nc]=make("uniform",2,N);     gen_uniform(&cfgs[nc],101);                               nc++;
-        cfgs[nc]=make("cantor b3k6",2,N); gen_cantor (&cfgs[nc],3,6,idepth(N,6),102);               nc++;
-        cfgs[nc]=make("cantor b3k4",2,N); gen_cantor (&cfgs[nc],3,4,idepth(N,4),103);               nc++;
-        cfgs[nc]=make("cantor b3k3",2,N); gen_cantor (&cfgs[nc],3,3,idepth(N,3),104);               nc++;
-        cfgs[nc]=make("curve",2,N);       gen_curve  (&cfgs[nc],105);                               nc++;
-        cfgs[nc]=make("cantor b3k2",2,N); gen_cantor (&cfgs[nc],3,2,idepth(N,2),106);               nc++;
-        cfgs[nc]=make("cantor b9k3",2,N); gen_cantor (&cfgs[nc],9,3,idepth(N,3),107);               nc++;
+        cfgs[nc]=make("uniform",2,N);     gen_uniform(&cfgs[nc],101+off);                           nc++;
+        cfgs[nc]=make("cantor b3k6",2,N); gen_cantor (&cfgs[nc],3,6,idepth(N,6),102+off);           nc++;
+        cfgs[nc]=make("cantor b3k4",2,N); gen_cantor (&cfgs[nc],3,4,idepth(N,4),103+off);           nc++;
+        cfgs[nc]=make("cantor b3k3",2,N); gen_cantor (&cfgs[nc],3,3,idepth(N,3),104+off);           nc++;
+        cfgs[nc]=make("curve",2,N);       gen_curve  (&cfgs[nc],105+off);                           nc++;
+        cfgs[nc]=make("cantor b3k2",2,N); gen_cantor (&cfgs[nc],3,2,idepth(N,2),106+off);           nc++;
+        cfgs[nc]=make("cantor b9k3",2,N); gen_cantor (&cfgs[nc],9,3,idepth(N,3),107+off);           nc++;
     } else {
-        cfgs[nc]=make("uniform",3,N);     gen_uniform(&cfgs[nc],201);                               nc++;
-        cfgs[nc]=make("cantor b3k9",3,N); gen_cantor (&cfgs[nc],3,9,idepth(N,9),202);               nc++;  /* D2=2.0 */
-        cfgs[nc]=make("sheet",3,N);       gen_sheet3d(&cfgs[nc],203);                               nc++;  /* D2~2  */
-        cfgs[nc]=make("cantor b3k5",3,N); gen_cantor (&cfgs[nc],3,5,idepth(N,5),204);               nc++;  /* D2=1.46 */
-        cfgs[nc]=make("cantor b3k3",3,N); gen_cantor (&cfgs[nc],3,3,idepth(N,3),205);               nc++;  /* D2=1.0 */
-        cfgs[nc]=make("cantor b3k2",3,N); gen_cantor (&cfgs[nc],3,2,idepth(N,2),206);               nc++;  /* D2=0.63 */
-        cfgs[nc]=make("cantor b4k2",3,N); gen_cantor (&cfgs[nc],4,2,idepth(N,2),207);               nc++;  /* D2=0.5 */
+        cfgs[nc]=make("uniform",3,N);     gen_uniform(&cfgs[nc],201+off);                           nc++;
+        cfgs[nc]=make("cantor b3k9",3,N); gen_cantor (&cfgs[nc],3,9,idepth(N,9),202+off);           nc++;  /* D2=2.0 */
+        cfgs[nc]=make("sheet",3,N);       gen_sheet3d(&cfgs[nc],203+off);                           nc++;  /* D2~2  */
+        cfgs[nc]=make("cantor b3k5",3,N); gen_cantor (&cfgs[nc],3,5,idepth(N,5),204+off);           nc++;  /* D2=1.46 */
+        cfgs[nc]=make("cantor b3k3",3,N); gen_cantor (&cfgs[nc],3,3,idepth(N,3),205+off);           nc++;  /* D2=1.0 */
+        cfgs[nc]=make("cantor b3k2",3,N); gen_cantor (&cfgs[nc],3,2,idepth(N,2),206+off);           nc++;  /* D2=0.63 */
+        cfgs[nc]=make("cantor b4k2",3,N); gen_cantor (&cfgs[nc],4,2,idepth(N,2),207+off);           nc++;  /* D2=0.5 */
     }
 
     double ell_min = (dim == 3) ? 1.5 : 1.0;

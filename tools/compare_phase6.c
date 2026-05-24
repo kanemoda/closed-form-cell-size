@@ -126,21 +126,21 @@ static void run_per_frame_oracle3d(const config_t *cfg, const double *ells, int 
     sim_t s; sim_init(&s, &mod);
     scenario_init(&s, scenario_from_name(mod.scenario));
     double sum_ell = 0;
-    oracle_point_t *sel  = (oracle_point_t *)malloc(sizeof(*sel)  * n_ells);
-    oracle_point_t *eval = (oracle_point_t *)malloc(sizeof(*eval) * n_ells);
+    /* Single-pass per-frame oracle (median-of-K=3): carries the same small
+     * (<=~2%) winner's-curse as 2D, negligible vs the 1.0-1.5x method gaps and
+     * ~2x cheaper than split-sample -- the saving funds seed averaging. */
+    oracle_point_t *pts = (oracle_point_t *)malloc(sizeof(*pts) * n_ells);
     for (int t = 0; t < mod.num_frames; t++) {
         sim_step(&s, NULL);
-        for (int i = 0; i < n_ells; i++)
-            oracle_eval_split3d(s.n, s.px, s.py, s.pz, mod.radius,
-                                mod.domain_w, mod.domain_h, mod.domain_d,
-                                ells[i], 2, &sel[i], &eval[i]);   /* K=2/group (3D cost) */
+        oracle_eval_sweep3d(s.n, s.px, s.py, s.pz, mod.radius,
+                            mod.domain_w, mod.domain_h, mod.domain_d, ells, n_ells, 3, pts);
         int best = 0;
         for (int i = 1; i < n_ells; i++)
-            if (sel[i].t_detect < sel[best].t_detect) best = i;
-        t_detect_us[t] = eval[best].t_detect * 1e6;
-        sum_ell += eval[best].ell;
+            if (pts[i].t_detect < pts[best].t_detect) best = i;
+        t_detect_us[t] = pts[best].t_detect * 1e6;
+        sum_ell += pts[best].ell;
     }
-    free(sel); free(eval);
+    free(pts);
     sim_free(&s);
     if (mean_ell_out) *mean_ell_out = sum_ell / mod.num_frames;
 }
@@ -236,14 +236,13 @@ static void run_scenario3d(scenario_id_t scen_id, int N, int frames, uint64_t se
             scenario_name(scen_id), N, frames);
     fflush(stderr);
 
-    /* Operative-range sweep for the oracles/calibration. In a 200^3 domain
-     * ell < 2 yields ~1e6+ cells (M-dominated); the cost optimum never falls
-     * there even at the densest scenario frames (explosion peaks at ell ~2.3),
-     * so we sweep [2, 25] -- which brackets every scenario's optimum (~4-10)
-     * while avoiding the large-ell regime where big cells make S ~ 1e8 at
-     * campaign N (huge pair buffers). Ericson ell=2r=1 is reported separately. */
+    /* Clipped ladder (~8 rungs) bracketing the 3D density-baseline optimum
+     * (cfg.cell_size = cbrt(V/N)), [0.45db, 2.4db] clamped to >= 2 (ell<2 in
+     * 200^3 is M-dominated and never optimal; the large-ell cap also avoids the
+     * S~1e8 pair-buffer blowup). Ericson ell=2r=1 reported separately. */
     double ells[32];
-    int n_ells = oracle_make_geo_sweep(2.0, 25.0, 1.3, ells, 32);
+    double db = cfg.cell_size;
+    int n_ells = oracle_make_geo_sweep(fmax(2.0, 0.45 * db), 2.4 * db, 1.3, ells, 32);
 
     const int n_calib_frames = 8, calib_K = 5;
     fprintf(stderr, "  Calibrating cost model (%d frames x %d ells, K=%d) ...\n",
