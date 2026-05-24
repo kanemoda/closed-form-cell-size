@@ -45,3 +45,26 @@ standard cell-list balance argument.
   equivalent (it may be, under uniform-density assumptions) or replace with the
   exact published expression.
 - Re-run the static-oracle vs. analytical-baseline comparison.
+
+---
+
+## 3. Re-run Phase 5 / 6 comparison tables after the t_narrow leak fix   (raised Phase 8)
+
+Phase 8 Task 0 fixed a measurement leak: `sim_step` invoked
+`grid_broad_phase_iter_time` (the t_M/t_S dryrun) *between* the broad-phase and
+narrow-phase end-stamps, so its O(M) cost leaked into `t_narrow` and hence into
+`t_detect` for every sim-measured method. The leak is now removed (the dryrun
+runs after the narrow-phase stamp).
+
+Consequence: the committed Phase 5 (`PHASE5_SUMMARY.md`) and Phase 6
+(`PHASE6_SUMMARY.md`) comparison tables are slightly inflated for the
+sim-measured methods (Ericson, Density, Static-oracle, Blind, Closed-A/B) by
+the dryrun's O(M) cost — larger at small ell. The per-frame oracle (measured via
+`oracle_eval`, which never called the dryrun) is unaffected, so the reported
+gap-to-oracle ratios are slightly *over*stated.
+
+**Action (campaign stage, NOT now):** re-run `compare_phase5` and
+`compare_phase6` with the leak-fixed `sim_step` and refresh both summary tables.
+Deferred deliberately so it does not delay the Phase 8 decisive test. The
+qualitative conclusions are unchanged (the leak is small and hits all
+sim-measured methods).

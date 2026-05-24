@@ -20,6 +20,7 @@ compare_phase5
 compare_phase6
 validate_experiment
 headroom
+phase8_d2
 out/
 .DS_Store
 *.log

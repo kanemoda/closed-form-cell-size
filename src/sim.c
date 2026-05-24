@@ -206,13 +206,8 @@ void sim_step(sim_t *s, sim_metrics_t *out) {
     }
     clock_gettime(CLOCK_MONOTONIC, &tb1);
 
-    /* Broad-phase outer-iter cost calibration -- separates t_M-prop from
-     * t_S-prop in t_broad. Cheap; one walk over cell_start.            */
-    long iter_checksum = 0;
-    double t_broad_iter = grid_broad_phase_iter_time(&s->grid, &iter_checksum);
-    (void)iter_checksum;
-
-    /* 5. narrow phase: circle/sphere overlap filter (in place; timed) */
+    /* 5. narrow phase: circle/sphere overlap filter (in place; timed).
+     * Timed strictly between tb1 and tn1 so t_narrow is PURE narrow phase. */
     int n_overlap;
     if (dim == 3)
         narrow_phase3d(s->pairs, n_cand, s->px, s->py, s->pz, s->cfg.radius,
@@ -221,6 +216,14 @@ void sim_step(sim_t *s, sim_metrics_t *out) {
         narrow_phase(s->pairs, n_cand, s->px, s->py, s->cfg.radius,
                      s->pairs, &n_overlap);
     clock_gettime(CLOCK_MONOTONIC, &tn1);
+
+    /* Broad-phase outer-iter cost calibration -- separates t_M-prop from
+     * t_S-prop in t_broad. Measured AFTER tn1 so it does NOT leak into
+     * t_narrow (it is a dryrun for the adapter's t_M/t_S split, not part of
+     * the detection pipeline). Cheap; one walk over cell_start. */
+    long iter_checksum = 0;
+    double t_broad_iter = grid_broad_phase_iter_time(&s->grid, &iter_checksum);
+    (void)iter_checksum;
 
     /* 6. resolve overlapping-pair collisions */
     if (dim == 3)
