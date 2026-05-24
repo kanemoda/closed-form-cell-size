@@ -273,7 +273,7 @@ static void stats(const double *series, int n, method_result_t *r) {
     free(s);
 }
 
-static void run_scenario(scenario_id_t scen_id, int N, int frames) {
+static void run_scenario(scenario_id_t scen_id, int N, int frames, uint64_t seed) {
     config_t cfg;
     config_default(&cfg);
     cfg.N           = N;
@@ -284,7 +284,7 @@ static void run_scenario(scenario_id_t scen_id, int N, int frames) {
     cfg.init_speed  = 10.0;
     cfg.restitution = 0.95;
     cfg.num_frames  = frames;
-    cfg.seed        = 31;
+    cfg.seed        = seed;
     cfg.cell_size   = baseline_uniform_analytical(N, cfg.domain_w, cfg.domain_h, cfg.radius);
     snprintf(cfg.scenario, sizeof(cfg.scenario), "%s", scenario_name(scen_id));
 
@@ -402,8 +402,10 @@ static void run_scenario(scenario_id_t scen_id, int N, int frames) {
 int main(int argc, char **argv) {
     int N = 8000;
     int frames = 200;
+    uint64_t seed = 31;
     if (argc > 1) N = atoi(argv[1]);
     if (argc > 2) frames = atoi(argv[2]);
+    if (argc > 3) seed = (uint64_t)strtoull(argv[3], NULL, 10);
 
     scenario_id_t scenarios[] = {
         SCEN_STABLE, SCEN_COLLAPSE, SCEN_EXPLOSION, SCEN_VORTEX,
@@ -412,15 +414,16 @@ int main(int argc, char **argv) {
     int n_scen = (int)(sizeof(scenarios)/sizeof(scenarios[0]));
 
     fprintf(stderr, "===================================================================\n");
-    fprintf(stderr, "Phase 5 method comparison (N=%d, frames=%d, 800x600 domain)\n", N, frames);
+    fprintf(stderr, "Phase 5 method comparison (N=%d, frames=%d, seed=%llu, 800x600)\n",
+            N, frames, (unsigned long long)seed);
     fprintf(stderr, "===================================================================\n");
 
-    /* multicluster's initial placement may exhaust at high N in narrow disks --
-     * fall back to a more modest N for that scenario, mirroring diag.c's note. */
+    /* multicluster's 4 disks saturate above ~20K in 800x600 (packing jams);
+     * cap it at the largest N that packs and note it (Phase 7 / TODO item 1). */
     for (int i = 0; i < n_scen; i++) {
         int N_use = N;
-        if (scenarios[i] == SCEN_MULTICLUSTER && N > 6000) N_use = 6000;
-        run_scenario(scenarios[i], N_use, frames);
+        if (scenarios[i] == SCEN_MULTICLUSTER && N > 20000) N_use = 20000;
+        run_scenario(scenarios[i], N_use, frames, seed);
     }
     return 0;
 }

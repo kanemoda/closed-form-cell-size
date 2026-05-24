@@ -68,3 +68,10 @@ gap-to-oracle ratios are slightly *over*stated.
 Deferred deliberately so it does not delay the Phase 8 decisive test. The
 qualitative conclusions are unchanged (the leak is small and hits all
 sim-measured methods).
+
+**RESOLVED (Phase 9):** the t_narrow leak is fixed (Phase 8 Task 0). The
+comparison was regenerated leak-fixed + split-sample at campaign scale (2D
+N=50K/300fr, 3D N=50K/60fr, single seed) in `PHASE9_SUMMARY.md`. The moderate-N
+Phase 5/6 summary tables are left as historical (the leak inflated them only
+slightly and uniformly); the at-scale leak-fixed numbers supersede them.
+Full multi-seed/N=100K matrix deferred (~2 h per run; documented compute limit).

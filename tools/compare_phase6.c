@@ -216,7 +216,7 @@ static void stats(const double *series, int n, method_result_t *r) {
     free(s);
 }
 
-static void run_scenario3d(scenario_id_t scen_id, int N, int frames) {
+static void run_scenario3d(scenario_id_t scen_id, int N, int frames, uint64_t seed) {
     config_t cfg; config_default(&cfg);
     cfg.dim         = 3;
     cfg.N           = N;
@@ -228,7 +228,7 @@ static void run_scenario3d(scenario_id_t scen_id, int N, int frames) {
     cfg.init_speed  = 10.0;
     cfg.restitution = 0.95;
     cfg.num_frames  = frames;
-    cfg.seed        = 31;
+    cfg.seed        = seed;
     cfg.cell_size   = density_baseline_3d(N, cfg.domain_w, cfg.domain_h, cfg.domain_d, cfg.radius);
     snprintf(cfg.scenario, sizeof(cfg.scenario), "%s", scenario_name(scen_id));
 
@@ -239,11 +239,11 @@ static void run_scenario3d(scenario_id_t scen_id, int N, int frames) {
     /* Operative-range sweep for the oracles/calibration. In a 200^3 domain
      * ell < 2 yields ~1e6+ cells (M-dominated); the cost optimum never falls
      * there even at the densest scenario frames (explosion peaks at ell ~2.3),
-     * so we sweep [2, 50] -- which brackets every scenario's optimum and runs
-     * far faster than descending to the 2r floor (8e6 cells). The Ericson
-     * ell = 2r = 1 point is still reported as its own baseline below. */
+     * so we sweep [2, 25] -- which brackets every scenario's optimum (~4-10)
+     * while avoiding the large-ell regime where big cells make S ~ 1e8 at
+     * campaign N (huge pair buffers). Ericson ell=2r=1 is reported separately. */
     double ells[32];
-    int n_ells = oracle_make_geo_sweep(2.0, 50.0, 1.3, ells, 32);
+    int n_ells = oracle_make_geo_sweep(2.0, 25.0, 1.3, ells, 32);
 
     const int n_calib_frames = 8, calib_K = 5;
     fprintf(stderr, "  Calibrating cost model (%d frames x %d ells, K=%d) ...\n",
@@ -313,8 +313,10 @@ int main(int argc, char **argv) {
     int N = 8000;          /* moderate N (matches the 2D comparison); spec
                             * campaign uses 50K (Phase 7). */
     int frames = 100;
+    uint64_t seed = 31;
     if (argc > 1) N = atoi(argv[1]);
     if (argc > 2) frames = atoi(argv[2]);
+    if (argc > 3) seed = (uint64_t)strtoull(argv[3], NULL, 10);
 
     scenario_id_t scenarios[] = {
         SCEN_STABLE, SCEN_COLLAPSE, SCEN_EXPLOSION, SCEN_PULSE, SCEN_SETTLING
@@ -322,10 +324,11 @@ int main(int argc, char **argv) {
     int n_scen = (int)(sizeof(scenarios) / sizeof(scenarios[0]));
 
     fprintf(stderr, "===================================================================\n");
-    fprintf(stderr, "Phase 6 method comparison -- 3D (N=%d, frames=%d, 200^3 domain)\n", N, frames);
+    fprintf(stderr, "Phase 6 method comparison -- 3D (N=%d, frames=%d, seed=%llu, 200^3)\n",
+            N, frames, (unsigned long long)seed);
     fprintf(stderr, "===================================================================\n");
 
     for (int i = 0; i < n_scen; i++)
-        run_scenario3d(scenarios[i], N, frames);
+        run_scenario3d(scenarios[i], N, frames, seed);
     return 0;
 }
